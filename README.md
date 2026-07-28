@@ -26,7 +26,9 @@ CosyVoice3Pro 将提示音频的特征提取从每次推理中解耦出来：参
 注册一次，后续请求只传 `speaker_id + text` 即可完成语音合成。注册时还可
 保存默认 Prompt 画像，请求中的非空 `prompt` 会仅对本次推理覆盖默认画像。
 
-Web 管理后台与 Triton HTTP API 统一由 `18000` 端口提供。
+统一 `/tts/` 接口同时支持内置声音、注册 Speaker ID、即时提示音频以及
+语速、音量、长文本和多种输出编码。Web 管理后台与全部 HTTP API 统一由
+`18000` 端口提供。
 
 ## 为什么使用 CosyVoice3Pro
 
@@ -36,6 +38,8 @@ Web 管理后台与 Triton HTTP API 统一由 `18000` 端口提供。
 | 声纹特征 | 每次重复提取 | 持久化并按需加载 |
 | 默认说话风格 | 客户端每次携带 | 注册时保存默认 Prompt 画像 |
 | 临时风格覆盖 | 需要自行拼装 | 请求传非空 `prompt` 即可 |
+| 声音来源 | 接口分散 | 内置声音、Speaker ID、即时提示音频统一入口 |
+| 音频后处理 | 客户端自行完成 | 服务端统一处理语速、音量、分段和编码 |
 | 管理能力 | 需要额外开发 | 内置注册、查询、更新、删除和 Web 后台 |
 
 ## 核心能力
@@ -46,7 +50,9 @@ Web 管理后台与 Triton HTTP API 统一由 `18000` 端口提供。
 - **Prompt 画像**：注册默认画像，并支持单次请求覆盖。
 - **双推理模式**：支持 `speaker_id` 推理，也兼容
   `reference_wav + reference_text` 原始调用。
-- **Web 管理后台**：上传参考音频、管理 Speaker、在线合成、试听和下载。
+- **统一 TTS API**：`POST /tts/` 支持内置声音、注册声纹和即时克隆。
+- **音频后处理**：支持长文本分段、语速、音量以及九种输出格式。
+- **Web 管理后台**：上传参考音频、管理 Speaker、配置后处理、试听和下载。
 - **Triton 兼容代理**：外部 `/v2/*` 地址不变，Gateway 转发至容器内部
   Triton。
 
@@ -59,27 +65,28 @@ Web 管理后台与 Triton HTTP API 统一由 `18000` 端口提供。
                              ▼                               │
                   ┌──────────────────────┐                   │
                   │ CosyVoice3Pro Gateway│                   │
-                  └──────┬────────┬──────┘                   │
-                         │        │                          │
-                       / │        │ /v2/*                    │
-                         ▼        ▼                          │
-                  Web Admin   Triton HTTP :18100             │
-                                  │                          │
-                                  ├── CosyVoice3Pro          │
-                                  ├── Speaker Registry       │
-                                  └── upstream cosyvoice3    │
+                  └───┬────────┬────────┬───┘                │
+                      │        │        │                    │
+                    / │  /tts/ │        │ /v2/*              │
+                      ▼        ▼        ▼                    │
+                 Web Admin  Audio API  Triton HTTP :18100    │
+                                      │                      │
+                                      ├── CosyVoice3Pro      │
+                                      ├── Speaker Registry   │
+                                      └── upstream cosyvoice3│
                                                              │
                         gRPC :18001 · Metrics :18002 ◀────────┘
 ```
 
-`18100` 仅供容器内部 Gateway 访问。外部 Triton HTTP 与 Web 后台统一
-使用 `18000`。
+`18100` 仅供容器内部 Gateway 访问。外部 Triton HTTP、TTS 音频接口与
+Web 后台统一使用 `18000`。
 
 ## API 入口
 
 | 地址 | 用途 |
 | --- | --- |
 | `http://HOST:18000/` | Web 管理后台 |
+| `POST http://HOST:18000/tts/` | 统一 TTS 音频流接口 |
 | `http://HOST:18000/v2/` | Triton HTTP API |
 | `HOST:18001` | Triton gRPC |
 | `http://HOST:18002/metrics` | Prometheus Metrics |
@@ -133,6 +140,25 @@ curl -sS http://127.0.0.1:18000/admin/api/info
 ```
 
 ## 30 秒调用示例
+
+### 直接生成音频
+
+`/tts/` 可以使用已注册 Speaker，并直接返回处理后的音频：
+
+```bash
+curl --fail-with-body \
+  -X POST "http://127.0.0.1:18000/tts/" \
+  -F "text=你好，这是 CosyVoice3Pro 统一语音接口。" \
+  -F "speakerId=common_speaker_1" \
+  -F "prompt=请用成熟、稳重、亲切的语气说话。" \
+  -F "speed=balanced" \
+  -F "volume=middle" \
+  -F "output_format=mp3" \
+  --output output.mp3
+```
+
+同一接口也支持 `tts_style` 内置声音或直接上传 `prompt_audio`。完整参数和
+curl 示例见 [`docs/api.md`](docs/api.md#14-统一-tts-音频接口)。
 
 ### 注册自己的 Speaker
 
@@ -197,7 +223,8 @@ http://服务器IP:18000/
 - 参考音频文本与默认 Prompt 画像配置
 - Speaker 注册、更新和删除
 - 默认画像与单次覆盖画像推理
-- 24kHz WAV 在线试听和下载
+- 语速、音量、输出格式和长文本分段配置
+- 处理后音频的在线试听和下载
 
 详细说明见 [`docs/web-admin.md`](docs/web-admin.md)。
 
@@ -231,6 +258,7 @@ bash manage.sh backup
 CosyVoice3Pro/
 ├── gateway/
 │   ├── app.py                         # Web Gateway 与 Triton 反向代理
+│   ├── legacy_tts.py                  # 统一 TTS 与音频后处理
 │   └── web/                           # Web 管理后台
 ├── models/
 │   ├── CosyVoice3Pro/                 # Speaker ID / Raw Prompt 推理
@@ -274,6 +302,7 @@ bash manage.sh backup
 - 保留上游 `cosyvoice3` Triton 模型，方便旧调用回滚。
 - 保留原始 `reference_wav + reference_text + target_text` 推理。
 - `instruct_text` 仍可作为 `prompt` 的兼容别名。
+- 旧版 `tts_style` 请求可以继续调用 `/tts/`。
 - 暂时关闭 Gateway 时，Triton 可直接监听外部 `18000`：
 
 ```bash
@@ -288,8 +317,8 @@ bash manage.sh restart
 
 ## 安全提示
 
-Web 管理后台和 Triton API 默认不包含应用层登录认证。部署到生产环境时，
-建议在外层负载均衡、反向代理或防火墙中配置：
+Web 管理后台、TTS 与 Triton API 默认不包含应用层登录认证。部署到生产
+环境时，建议在外层负载均衡、反向代理或防火墙中配置：
 
 - TLS
 - 身份认证与访问控制
@@ -299,7 +328,7 @@ Web 管理后台和 Triton API 默认不包含应用层登录认证。部署到�
 
 ## 文档
 
-- [Triton Speaker Registry 与推理 API](docs/api.md)
+- [统一 TTS、Speaker Registry 与 Triton 推理 API](docs/api.md)
 - [Web Gateway 部署与运维](docs/web-admin.md)
 
 ## 致谢与上游

@@ -6,8 +6,9 @@ import shutil
 import subprocess
 from email.parser import BytesParser
 from email.policy import default as email_policy
-from typing import Dict
+from typing import Dict, Tuple
 from urllib.parse import parse_qs
+from uuid import uuid4
 
 import httpx
 import numpy as np
@@ -20,7 +21,11 @@ logger = logging.getLogger(__name__)
 
 SAMPLE_RATE = 24000
 OUTPUT_SAMPLE_RATE = 16000
-MAX_FORM_BYTES = 4 * 1024 * 1024
+REFERENCE_SAMPLE_RATE = 16000
+MIN_PROMPT_SECONDS = 0.5
+MAX_PROMPT_SECONDS = 30
+MAX_PROMPT_LENGTH = 512
+MAX_FORM_BYTES = 32 * 1024 * 1024
 INFERENCE_CONCURRENCY = 10
 
 TTS_STYLES = {
@@ -55,6 +60,7 @@ MEDIA_TYPES = {
 }
 
 _PUNCTUATION_PARTS = re.compile(r".+?[。！？!?；;，,：:.]+|.+$", re.DOTALL)
+_SPEAKER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 _inference_semaphore = asyncio.Semaphore(INFERENCE_CONCURRENCY)
 
 
@@ -65,7 +71,9 @@ def _decode_form_value(raw_value: bytes, charset: str) -> str:
         return raw_value.decode("utf-8", errors="replace")
 
 
-async def _read_form_fields(request: Request) -> Dict[str, str]:
+async def _read_form_data(
+    request: Request,
+) -> Tuple[Dict[str, str], Dict[str, dict]]:
     content_length = request.headers.get("content-length")
     if content_length:
         try:
@@ -92,16 +100,26 @@ async def _read_form_fields(request: Request) -> Dict[str, str]:
             raise HTTPException(status_code=400, detail="multipart 请求体非法")
 
         fields = {}
+        files = {}
         for part in message.iter_parts():
             if part.get_content_disposition() != "form-data":
                 continue
             name = part.get_param("name", header="content-disposition")
-            if not name or part.get_filename() is not None:
+            if not name:
                 continue
             value = part.get_payload(decode=True) or b""
-            fields[name] = _decode_form_value(
-                value, part.get_content_charset() or "utf-8")
-        return fields
+            filename = part.get_param(
+                "filename", header="content-disposition")
+            if filename is not None:
+                files[name] = {
+                    "filename": filename,
+                    "content_type": part.get_content_type(),
+                    "content": value,
+                }
+            else:
+                fields[name] = _decode_form_value(
+                    value, part.get_content_charset() or "utf-8")
+        return fields, files
 
     if media_type == "application/x-www-form-urlencoded":
         parsed = parse_qs(
@@ -109,7 +127,9 @@ async def _read_form_fields(request: Request) -> Dict[str, str]:
             keep_blank_values=True,
             strict_parsing=False,
         )
-        return {name: values[-1] for name, values in parsed.items()}
+        return {
+            name: values[-1] for name, values in parsed.items()
+        }, {}
 
     if media_type == "application/json":
         try:
@@ -118,10 +138,11 @@ async def _read_form_fields(request: Request) -> Dict[str, str]:
             raise HTTPException(status_code=400, detail="JSON 请求体非法") from exc
         if not isinstance(payload, dict):
             raise HTTPException(status_code=400, detail="JSON 请求体必须是对象")
-        return {
+        fields = {
             str(name): "" if value is None else str(value)
             for name, value in payload.items()
         }
+        return fields, {}
 
     raise HTTPException(
         status_code=415,
@@ -150,6 +171,77 @@ def _int_field(fields, name, default):
     except ValueError as exc:
         raise HTTPException(
             status_code=422, detail=f"{name} 必须是整数") from exc
+
+
+def _decode_prompt_audio(audio_bytes):
+    if not audio_bytes:
+        raise ValueError("prompt_audio 不能为空")
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError("服务端未安装 FFmpeg")
+
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel", "error",
+        "-i", "pipe:0",
+        "-f", "f32le",
+        "-codec:a", "pcm_f32le",
+        "-ar", str(REFERENCE_SAMPLE_RATE),
+        "-ac", "1",
+        "pipe:1",
+    ]
+    try:
+        process = subprocess.run(
+            command,
+            input=audio_bytes,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError("prompt_audio 解码超时") from exc
+
+    if process.returncode != 0:
+        detail = process.stderr.decode("utf-8", errors="replace").strip()
+        raise ValueError(f"prompt_audio 无法解码：{detail}")
+    try:
+        waveform = np.frombuffer(process.stdout, dtype=np.float32).copy()
+    except ValueError as exc:
+        raise ValueError("prompt_audio 解码结果非法") from exc
+
+    duration = waveform.size / REFERENCE_SAMPLE_RATE
+    if duration < MIN_PROMPT_SECONDS or duration > MAX_PROMPT_SECONDS:
+        raise ValueError(
+            "prompt_audio 时长必须在 "
+            f"{MIN_PROMPT_SECONDS}～{MAX_PROMPT_SECONDS} 秒之间"
+        )
+    if not np.all(np.isfinite(waveform)):
+        raise ValueError("prompt_audio 包含非法采样值")
+    return waveform
+
+
+def _speaker_id_field(fields):
+    camel_case = fields.get("speakerId", "").strip()
+    snake_case = fields.get("speaker_id", "").strip()
+    if camel_case and snake_case and camel_case != snake_case:
+        raise HTTPException(
+            status_code=422,
+            detail="speakerId 与 speaker_id 不能设置为不同值",
+        )
+    speaker_id = camel_case or snake_case
+    if speaker_id and (
+        not _SPEAKER_ID_PATTERN.fullmatch(speaker_id)
+        or ".." in speaker_id
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "speakerId 仅允许字母、数字、下划线、中划线和点，"
+                "长度 1～128，且不能包含 '..'"
+            ),
+        )
+    return speaker_id
 
 
 def _split_text(text: str, max_chars: int):
@@ -187,23 +279,63 @@ def _split_text(text: str, max_chars: int):
     return segments
 
 
-async def _infer_segment(request: Request, speaker_id: str, text: str, index: int):
-    payload = {
-        "inputs": [
+async def _infer_segment(
+    request: Request,
+    text: str,
+    request_id: str,
+    prompt: str,
+    speaker_id: str = "",
+    reference_samples=None,
+    reference_text: str = "",
+):
+    inputs = []
+    if speaker_id:
+        inputs.append(
             {
                 "name": "speaker_id",
                 "shape": [1, 1],
                 "datatype": "BYTES",
                 "data": [speaker_id],
+            }
+        )
+    else:
+        sample_count = len(reference_samples[0])
+        inputs.extend([
+            {
+                "name": "reference_wav",
+                "shape": [1, sample_count],
+                "datatype": "FP32",
+                "data": reference_samples,
             },
             {
-                "name": "target_text",
+                "name": "reference_wav_len",
+                "shape": [1, 1],
+                "datatype": "INT32",
+                "data": [[sample_count]],
+            },
+            {
+                "name": "reference_text",
                 "shape": [1, 1],
                 "datatype": "BYTES",
-                "data": [text],
+                "data": [reference_text],
             },
-        ]
-    }
+        ])
+
+    inputs.extend([
+        {
+            "name": "prompt",
+            "shape": [1, 1],
+            "datatype": "BYTES",
+            "data": [prompt],
+        },
+        {
+            "name": "target_text",
+            "shape": [1, 1],
+            "datatype": "BYTES",
+            "data": [text],
+        },
+    ])
+    payload = {"inputs": inputs}
     upstream = request.app.state.triton_upstream
     url = f"{upstream}/v2/models/CosyVoice3Pro/infer"
 
@@ -211,7 +343,7 @@ async def _infer_segment(request: Request, speaker_id: str, text: str, index: in
         async with _inference_semaphore:
             response = await request.app.state.http_client.post(
                 url,
-                params={"request_id": str(index)},
+                params={"request_id": request_id},
                 json=payload,
             )
     except httpx.HTTPError as exc:
@@ -325,7 +457,7 @@ def _encode_audio(waveform, speed, volume, output_format):
 
 @router.post("/tts/")
 async def legacy_tts(request: Request):
-    fields = await _read_form_fields(request)
+    fields, files = await _read_form_data(request)
     text = fields.get("text", "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="text 不能为空")
@@ -341,21 +473,63 @@ async def legacy_tts(request: Request):
     if max_chars <= 0:
         raise HTTPException(status_code=422, detail="max_chars 必须大于 0")
 
-    tts_style = _int_field(fields, "tts_style", 1)
-    # Preserve the old endpoint's fallback behavior for unknown style IDs.
-    if tts_style not in TTS_STYLES:
-        tts_style = 1
-    speaker_id = TTS_STYLES[tts_style]
+    prompt = fields.get("prompt", "").strip()
+    if len(prompt) > MAX_PROMPT_LENGTH:
+        raise HTTPException(
+            status_code=422,
+            detail=f"prompt 不能超过 {MAX_PROMPT_LENGTH} 个字符",
+        )
+
+    requested_speaker_id = _speaker_id_field(fields)
+    prompt_audio = files.get("prompt_audio")
+    reference_samples = None
+    reference_text = ""
+    tts_style = None
+
+    if prompt_audio is not None:
+        reference_text = fields.get("prompt_text", "").strip()
+        if not reference_text:
+            raise HTTPException(
+                status_code=400,
+                detail="上传 prompt_audio 时 prompt_text 不能为空",
+            )
+        try:
+            reference_waveform = await asyncio.to_thread(
+                _decode_prompt_audio,
+                prompt_audio["content"],
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        reference_samples = [reference_waveform.tolist()]
+        speaker_id = ""
+        resolved_speaker = "raw_prompt"
+        mode = "prompt_audio"
+    elif requested_speaker_id:
+        speaker_id = requested_speaker_id
+        resolved_speaker = speaker_id
+        mode = "speaker_id"
+    else:
+        tts_style = _int_field(fields, "tts_style", 1)
+        # Preserve the old endpoint's fallback behavior for unknown style IDs.
+        if tts_style not in TTS_STYLES:
+            tts_style = 1
+        speaker_id = TTS_STYLES[tts_style]
+        resolved_speaker = speaker_id
+        mode = "tts_style"
 
     segments = _split_text(text, max_chars)
     if not segments:
         raise HTTPException(status_code=400, detail="text 不能为空")
 
     logger.info(
-        "legacy tts requested style=%s speaker=%s chars=%s segments=%s "
-        "format=%s speed=%s volume=%s",
+        "tts requested mode=%s style=%s speaker=%s prompt_override=%s "
+        "chars=%s segments=%s format=%s speed=%s volume=%s",
+        mode,
         tts_style,
-        speaker_id,
+        resolved_speaker,
+        bool(prompt),
         len(text),
         len(segments),
         output_format,
@@ -363,8 +537,17 @@ async def legacy_tts(request: Request):
         volume,
     )
 
+    request_group_id = uuid4().hex
     waveforms = await asyncio.gather(*[
-        _infer_segment(request, speaker_id, segment, index)
+        _infer_segment(
+            request=request,
+            text=segment,
+            request_id=f"{request_group_id}-{index}",
+            prompt=prompt,
+            speaker_id=speaker_id,
+            reference_samples=reference_samples,
+            reference_text=reference_text,
+        )
         for index, segment in enumerate(segments)
     ])
     waveform = np.concatenate(waveforms)
@@ -386,7 +569,9 @@ async def legacy_tts(request: Request):
         media_type=MEDIA_TYPES[output_format],
         headers={
             "Content-Disposition": f'inline; filename="tts.{output_format}"',
-            "X-CosyVoice-Speaker": speaker_id,
+            "X-CosyVoice-Mode": mode,
+            "X-CosyVoice-Speaker": resolved_speaker,
+            "X-CosyVoice-Prompt-Override": str(bool(prompt)).lower(),
             "X-CosyVoice-Segments": str(len(segments)),
         },
     )

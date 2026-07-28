@@ -46,7 +46,7 @@
             <strong id="sidebar-status-text">正在连接</strong>
           </span>
         </div>
-        <span class="version">Web Gateway v1.0</span>
+        <span class="version">Web Gateway v1.2</span>
       </div>
     </aside>
 
@@ -107,7 +107,7 @@
             <div>
               <p class="section-index">01 / SYNTHESIS</p>
               <h2>生成一段声音</h2>
-              <p>选择注册声纹，输入文本即可生成 24kHz 音频。</p>
+              <p>选择声纹并配置画像、语速、音量和输出格式。</p>
             </div>
             <span class="panel-badge">CosyVoice3Pro</span>
           </div>
@@ -158,6 +158,58 @@
                 placeholder="输入需要转换为语音的文本……"></textarea>
             </div>
 
+            <div class="postprocess-grid" aria-label="音频后处理配置">
+              <div class="field">
+                <label for="synthesis-speed">语速</label>
+                <div class="select-wrap">
+                  <select id="synthesis-speed">
+                    <option value="low">慢速</option>
+                    <option value="balanced" selected>均衡</option>
+                    <option value="fast">快速</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="synthesis-volume">音量</label>
+                <div class="select-wrap">
+                  <select id="synthesis-volume">
+                    <option value="small">较小</option>
+                    <option value="middle" selected>标准</option>
+                    <option value="large">较大</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="synthesis-format">输出格式</label>
+                <div class="select-wrap">
+                  <select id="synthesis-format">
+                    <option value="wav" selected>WAV</option>
+                    <option value="mp3">MP3</option>
+                    <option value="aac">AAC</option>
+                    <option value="m4a">M4A</option>
+                    <option value="opus">Opus</option>
+                    <option value="ogg">OGG</option>
+                    <option value="flac">FLAC</option>
+                    <option value="webm">WebM</option>
+                    <option value="pcm">PCM</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="synthesis-max-chars">分段字数</label>
+                <input
+                  id="synthesis-max-chars"
+                  type="number"
+                  min="1"
+                  max="1000"
+                  step="1"
+                  value="80">
+              </div>
+            </div>
+
             <button class="button button-primary button-generate" id="generate-button" type="submit">
               <span class="button-wave" aria-hidden="true">
                 <i></i><i></i><i></i><i></i>
@@ -184,14 +236,14 @@
 
           <div class="empty-output" id="empty-output">
             <strong>还没有生成音频</strong>
-            <p>完成一次合成后，可在这里试听并下载 WAV。</p>
+            <p>完成一次合成后，可在这里试听并下载所选格式。</p>
           </div>
 
           <div class="audio-result is-hidden" id="audio-result">
             <audio id="audio-player" controls preload="metadata"></audio>
             <div class="result-metrics">
               <div><span>时长</span><strong id="result-duration">—</strong></div>
-              <div><span>采样率</span><strong>24 kHz</strong></div>
+              <div><span>输出</span><strong id="result-format">—</strong></div>
               <div><span>耗时</span><strong id="result-latency">—</strong></div>
             </div>
             <a class="button button-secondary" id="download-audio" download="cosyvoice3pro.wav">
@@ -201,7 +253,7 @@
 
           <div class="request-note">
             <span>API</span>
-            <code>POST /v2/models/CosyVoice3Pro/infer</code>
+            <code>POST /tts/ · Speaker ID + Audio Post-processing</code>
           </div>
         </aside>
       </section>

@@ -457,6 +457,27 @@ h2 {
   margin-bottom: 20px;
 }
 
+.postprocess-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.postprocess-grid .field {
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.postprocess-grid input,
+.postprocess-grid .select-wrap {
+  margin-top: 7px;
+}
+
 .field label,
 .label-row {
   color: var(--muted-strong);

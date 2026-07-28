@@ -18,7 +18,7 @@ http://服务器地址:18000/v2/
 
 | 端口 | 用途 |
 | --- | --- |
-| `18000` | Web 管理后台和 Triton HTTP Gateway |
+| `18000` | Web 管理后台、统一 TTS 和 Triton HTTP Gateway |
 | `18001` | Triton gRPC |
 | `18002` | Triton Metrics |
 
@@ -30,12 +30,12 @@ http://服务器地址:18000/v2/
           18000
               |
     CosyVoice3Pro Web Gateway
-       |                  |
-       | /                | /v2/*
-       v                  v
-  静态管理网页       Triton HTTP :18100
-                          |
-                  CosyVoice3Pro Models
+       |          |             |
+       | /        | /tts/       | /v2/*
+       v          v             v
+  静态管理网页  音频流接口   Triton HTTP :18100
+                               |
+                       CosyVoice3Pro Models
 ```
 
 `18100` 只在容器内部使用，没有映射到宿主机。原有调用
@@ -51,8 +51,11 @@ http://服务器地址:18000/v2/
 - 注册或更新 Speaker
 - 设置注册默认 `prompt` 画像
 - 推理时使用默认画像或非空 `prompt` 单次覆盖
-- 在线试听 24kHz 合成结果
-- 下载 WAV
+- 配置慢速、均衡、快速语速
+- 配置较小、标准、较大音量
+- 配置长文本分段字符数
+- 选择 PCM、MP3、WAV、AAC、M4A、Opus、OGG、FLAC、WebM
+- 在线试听并下载处理后的 16kHz 音频
 - 删除 Speaker
 
 浏览器上传的提示音频建议为 3～10 秒清晰单人声，服务端约束为
@@ -116,6 +119,7 @@ bash manage.sh restart
 
 - `/v2/*` Triton API 继续使用 `18000`
 - `/` 不再提供管理网页
+- `/tts/` 不再提供音频流接口
 - `18001` 和 `18002` 不变
 
 ## 7. 仓库结构
@@ -134,6 +138,6 @@ CosyVoice3Pro 自身，不依赖额外的 Python UI 服务。
 
 ## 8. 安全说明
 
-当前 `18000` Triton API 和管理网页没有应用层账号认证，与升级前的
-Triton API 权限模型一致。管理页面包含注册和删除操作，应只向可信内网
-开放，或在外层反向代理、防火墙中增加认证和来源限制。
+当前 `18000` Triton API、TTS 接口和管理网页没有应用层账号认证，与
+升级前的 Triton API 权限模型一致。管理页面包含注册和删除操作，应只向
+可信内网开放，或在外层反向代理、防火墙中增加认证和来源限制。

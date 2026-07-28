@@ -1,4 +1,4 @@
-# CosyVoice3Pro Triton Speaker Registry 接口文档
+# CosyVoice3Pro API 文档
 
 ## 1. 概述
 
@@ -16,8 +16,8 @@ http://127.0.0.1:18000/
 
 浏览器后台说明见 [CosyVoice3Pro 同端口 Web 管理后台](web-admin.md)。
 
-旧版内置说话人 `POST /tts/` 兼容接口继续保留，完整参数和可直接运行的
-curl 见 [`/tts/` 兼容接口文档](tts-api.md)。
+同一 Gateway 还提供统一音频流接口 `POST /tts/`，支持内置声音、已注册
+Speaker ID、即时提示音频、自定义画像和音频后处理，详见第 14 节。
 
 本次升级新增两个能力：
 
@@ -613,3 +613,163 @@ COSYVOICE_SPEAKER_STORE_DIR=/data/cosyvoice-speakers \
 ```
 
 回滚时应先停止 Triton，再用该目录恢复 `model_repo_cosyvoice3_copy`，最后重新启动服务。
+
+## 14. 统一 TTS 音频接口
+
+### 14.1 接口地址
+
+```text
+POST http://服务器地址:18000/tts/
+Content-Type: multipart/form-data
+```
+
+该接口直接返回音频流，并在服务端完成长文本分段、语速、音量、重采样和
+输出编码。它支持三种声音来源，按以下优先级选择：
+
+1. 请求上传了 `prompt_audio`：使用本次提示音频即时克隆。
+2. 请求传了 `speakerId`：使用 Speaker Registry 中的注册声纹。
+3. 以上都没有：使用 `tts_style` 对应的内置声纹。
+
+因此同时传 `prompt_audio`、`speakerId` 和 `tts_style` 时，
+`prompt_audio` 生效。
+
+### 14.2 请求参数
+
+通用参数：
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `text` | string | 是 | 无 | 需要合成的文本 |
+| `prompt` | string | 否 | 空 | 本次画像覆盖，最长 512 字 |
+| `language` | string | 否 | `zh` | 兼容字段；模型自动处理支持的语言 |
+| `speed` | enum | 否 | `balanced` | `low`、`balanced`、`fast` |
+| `volume` | enum | 否 | `middle` | `small`、`middle`、`large` |
+| `output_format` | enum | 否 | `mp3` | `pcm`、`mp3`、`wav`、`aac`、`m4a`、`opus`、`ogg`、`flac`、`webm` |
+| `max_chars` | int | 否 | `80` | 长文本分段的最大字符数，必须大于 0 |
+
+声音来源参数：
+
+| 参数 | 类型 | 使用场景 | 说明 |
+| --- | --- | --- | --- |
+| `speakerId` | string | 注册声纹 | Speaker Registry 中已存在的 ID |
+| `speaker_id` | string | 注册声纹 | `speakerId` 的兼容别名 |
+| `prompt_audio` | file | 即时克隆 | FFmpeg 支持的音频文件，0.5～30 秒 |
+| `prompt_text` | string | 即时克隆 | `prompt_audio` 中实际说出的准确文本 |
+| `tts_style` | int | 内置声音 | 内置声音编号，默认 `1` |
+
+`speakerId` 规则与第 3 节一致。上传 `prompt_audio` 时，
+`prompt_text` 必填。请求体最大为 32 MiB。
+
+内置声音映射：
+
+| `tts_style` | Speaker ID |
+| --- | --- |
+| `1` | `common_speaker_1` |
+| `2` | `common_speaker_2` |
+| `3` | `common_speaker_3` |
+| `4` | `common_speaker_4` |
+
+未知的 `tts_style` 会按旧接口行为回退到 `common_speaker_1`。
+
+### 14.3 Prompt 规则
+
+使用 `speakerId` 或 `tts_style` 时：
+
+| `prompt` | 行为 |
+| --- | --- |
+| 不传或空字符串 | 使用该 Speaker 注册时保存的默认画像 |
+| 非空字符串 | 只覆盖本次请求的画像，不修改注册数据 |
+
+使用 `prompt_audio` 时，`prompt_text` 只描述音频中实际说出的内容，
+`prompt` 用于额外指定本次说话画像。`prompt` 可以为空。
+
+### 14.4 内置声音 curl
+
+```bash
+curl --fail-with-body \
+  -X POST "http://127.0.0.1:18000/tts/" \
+  -F "text=你好，这是一个内置声音接口测试。Nice to meet you!" \
+  -F "tts_style=1" \
+  -F "speed=balanced" \
+  -F "volume=middle" \
+  -F "output_format=mp3" \
+  -F "max_chars=80" \
+  --output builtin.mp3
+```
+
+### 14.5 Speaker ID curl
+
+使用注册默认画像：
+
+```bash
+curl --fail-with-body \
+  -X POST "http://127.0.0.1:18000/tts/" \
+  -F "text=你好，这是已注册声纹的语音合成。" \
+  -F "speakerId=common_speaker_1" \
+  -F "output_format=wav" \
+  --output registered-default.wav
+```
+
+使用非空 `prompt` 覆盖本次画像：
+
+```bash
+curl --fail-with-body \
+  -X POST "http://127.0.0.1:18000/tts/" \
+  -F "text=太好了，我们今天完成了新的升级！" \
+  -F "speakerId=common_speaker_1" \
+  -F "prompt=请非常开心、兴奋地说话。" \
+  -F "speed=fast" \
+  -F "volume=large" \
+  -F "output_format=mp3" \
+  --output registered-happy.mp3
+```
+
+### 14.6 即时提示音频 curl
+
+```bash
+curl --fail-with-body \
+  -X POST "http://127.0.0.1:18000/tts/" \
+  -F "text=你好，这是直接上传提示音频的即时克隆测试。" \
+  -F "prompt_audio=@./zero_shot_prompt.wav;type=audio/wav" \
+  -F "prompt_text=希望你以后能够做得比我还好。" \
+  -F "prompt=请用成熟、稳重、亲切的语气说话。" \
+  -F "speed=balanced" \
+  -F "volume=middle" \
+  -F "output_format=m4a" \
+  --output raw-prompt.m4a
+```
+
+### 14.7 响应
+
+成功时返回所选格式的 16kHz 单声道音频流：
+
+```text
+Content-Type: 对应的音频 MIME 类型
+Content-Disposition: inline; filename="tts.输出格式"
+X-CosyVoice-Mode: tts_style | speaker_id | prompt_audio
+X-CosyVoice-Speaker: 实际 Speaker ID 或 raw_prompt
+X-CosyVoice-Prompt-Override: true | false
+X-CosyVoice-Segments: 长文本分段数量
+```
+
+常见 HTTP 错误：
+
+| 状态码 | 说明 |
+| --- | --- |
+| `400` | 文本为空、提示音频无法解码、时长非法或缺少 `prompt_text` |
+| `413` | 请求体超过 32 MiB |
+| `415` | Content-Type 不受支持 |
+| `422` | Speaker ID、枚举、`prompt` 或 `max_chars` 参数非法 |
+| `502` | Triton 推理失败或返回非法音频 |
+| `503` | Triton 服务不可用 |
+
+### 14.8 Web 管理后台
+
+Web 合成工作台使用同一个 `/tts/` 接口，支持选择：
+
+- 注册 Speaker
+- 本次 Prompt 画像覆盖
+- 慢速、均衡、快速
+- 较小、标准、较大音量
+- PCM、MP3、WAV、AAC、M4A、Opus、OGG、FLAC、WebM
+- 长文本分段字符数

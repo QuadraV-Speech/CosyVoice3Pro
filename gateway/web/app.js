@@ -2,7 +2,6 @@
 
 const SYNTHESIS_MODEL = "CosyVoice3Pro";
 const REGISTRY_MODEL = "CosyVoice3ProSpeakerRegistry";
-const SAMPLE_RATE = 24000;
 
 const state = {
   speakers: [],
@@ -26,6 +25,10 @@ const elements = {
   requestPrompt: document.querySelector("#request-prompt"),
   targetText: document.querySelector("#target-text"),
   textCount: document.querySelector("#text-count"),
+  synthesisSpeed: document.querySelector("#synthesis-speed"),
+  synthesisVolume: document.querySelector("#synthesis-volume"),
+  synthesisFormat: document.querySelector("#synthesis-format"),
+  synthesisMaxChars: document.querySelector("#synthesis-max-chars"),
   synthesisForm: document.querySelector("#synthesis-form"),
   generateButton: document.querySelector("#generate-button"),
   resultState: document.querySelector("#result-state"),
@@ -34,6 +37,7 @@ const elements = {
   audioPlayer: document.querySelector("#audio-player"),
   downloadAudio: document.querySelector("#download-audio"),
   resultDuration: document.querySelector("#result-duration"),
+  resultFormat: document.querySelector("#result-format"),
   resultLatency: document.querySelector("#result-latency"),
   waveVisual: document.querySelector("#wave-visual"),
   waveBars: document.querySelector("#wave-bars"),
@@ -69,7 +73,9 @@ async function requestJson(url, options = {}) {
     }
   }
   if (!response.ok) {
-    throw new Error(payload.error || `HTTP ${response.status}`);
+    throw new Error(
+      payload.detail || payload.error || `HTTP ${response.status}`,
+    );
   }
   return payload;
 }
@@ -253,7 +259,7 @@ function renderSpeakerTable() {
           <span class="speaker-avatar">${escapeHtml(speaker.speaker_id.slice(0, 1).toUpperCase())}</span>
           <span>
             <strong>${escapeHtml(speaker.speaker_id)}</strong>
-            <small>24kHz output</small>
+            <small>TTS ready</small>
           </span>
         </div>
       </td>
@@ -322,47 +328,15 @@ function buildWaveBars() {
   elements.waveBars.append(fragment);
 }
 
-function floatWaveformToWav(samples, sampleRate) {
-  const buffer = new ArrayBuffer(44 + samples.length * 2);
-  const view = new DataView(buffer);
-  const writeString = (offset, value) => {
-    for (let index = 0; index < value.length; index += 1) {
-      view.setUint8(offset + index, value.charCodeAt(index));
-    }
-  };
-
-  writeString(0, "RIFF");
-  view.setUint32(4, 36 + samples.length * 2, true);
-  writeString(8, "WAVE");
-  writeString(12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  writeString(36, "data");
-  view.setUint32(40, samples.length * 2, true);
-
-  let offset = 44;
-  for (const value of samples) {
-    const clamped = Math.max(-1, Math.min(1, value));
-    view.setInt16(
-      offset,
-      clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff,
-      true,
-    );
-    offset += 2;
-  }
-  return new Blob([view], { type: "audio/wav" });
-}
-
 async function synthesize(event) {
   event.preventDefault();
   const speakerId = elements.speakerSelect.value;
   const targetText = elements.targetText.value.trim();
   const prompt = elements.requestPrompt.value.trim();
+  const speed = elements.synthesisSpeed.value;
+  const volume = elements.synthesisVolume.value;
+  const outputFormat = elements.synthesisFormat.value;
+  const maxChars = elements.synthesisMaxChars.value;
   if (!speakerId || !targetText) return;
 
   setButtonLoading(elements.generateButton, true, "正在生成…", "生成语音");
@@ -371,31 +345,63 @@ async function synthesize(event) {
   const startedAt = performance.now();
 
   try {
-    const payload = await infer(SYNTHESIS_MODEL, [
-      tritonInput("speaker_id", [1, 1], "BYTES", [speakerId]),
-      tritonInput("prompt", [1, 1], "BYTES", [prompt]),
-      tritonInput("target_text", [1, 1], "BYTES", [targetText]),
-    ]);
-    const output = outputsByName(payload).waveform;
-    const flatOutput = output.flat ? output.flat(Infinity) : output;
-    if (!flatOutput || flatOutput.length === 0) {
-      throw new Error("响应中没有 waveform 数据");
+    const formData = new FormData();
+    formData.append("text", targetText);
+    formData.append("speakerId", speakerId);
+    formData.append("prompt", prompt);
+    formData.append("speed", speed);
+    formData.append("volume", volume);
+    formData.append("output_format", outputFormat);
+    formData.append("max_chars", maxChars);
+
+    const response = await fetch("/tts/", {
+      method: "POST",
+      body: formData,
+    });
+    if (!response.ok) {
+      const responseText = await response.text();
+      let detail = responseText || `HTTP ${response.status}`;
+      try {
+        const payload = JSON.parse(responseText);
+        detail = payload.detail || payload.error || detail;
+      } catch {
+        // Keep the plain-text response.
+      }
+      throw new Error(detail);
     }
 
-    const samples = Float32Array.from(flatOutput);
-    const wavBlob = floatWaveformToWav(samples, SAMPLE_RATE);
+    const audioBlob = await response.blob();
+    if (!audioBlob.size) {
+      throw new Error("服务返回了空音频");
+    }
     if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
-    state.audioUrl = URL.createObjectURL(wavBlob);
+    state.audioUrl = URL.createObjectURL(audioBlob);
+    elements.audioPlayer.onerror = () => {
+      elements.resultDuration.textContent = "不可试听";
+    };
+    elements.audioPlayer.onloadedmetadata = () => {
+      const duration = elements.audioPlayer.duration;
+      elements.resultDuration.textContent = Number.isFinite(duration)
+        ? `${duration.toFixed(2)} s`
+        : "—";
+    };
     elements.audioPlayer.src = state.audioUrl;
     elements.downloadAudio.href = state.audioUrl;
-    elements.downloadAudio.download = `${speakerId}-${Date.now()}.wav`;
-    elements.resultDuration.textContent = `${(samples.length / SAMPLE_RATE).toFixed(2)} s`;
+    elements.downloadAudio.download =
+      `${speakerId}-${Date.now()}.${outputFormat}`;
+    elements.downloadAudio.textContent = `下载 ${outputFormat.toUpperCase()}`;
+    elements.resultDuration.textContent = "读取中";
+    elements.resultFormat.textContent =
+      `${outputFormat.toUpperCase()} · 16 kHz`;
     elements.resultLatency.textContent = `${((performance.now() - startedAt) / 1000).toFixed(2)} s`;
     elements.emptyOutput.classList.add("is-hidden");
     elements.audioResult.classList.remove("is-hidden");
     elements.resultState.textContent = "生成完成";
     elements.resultState.classList.add("is-ready");
-    toast("语音生成完成", `${speakerId} · ${(samples.length / SAMPLE_RATE).toFixed(2)} 秒`);
+    toast(
+      "语音生成完成",
+      `${speakerId} · ${outputFormat.toUpperCase()} · ${speed} · ${volume}`,
+    );
   } catch (error) {
     elements.resultState.textContent = "生成失败";
     toast("语音生成失败", error.message, "error");
