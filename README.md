@@ -16,7 +16,6 @@
 [快速开始](#快速开始) ·
 [Web 后台](#web-管理后台) ·
 [API 文档](docs/api.md) ·
-[`/tts/` 兼容接口](docs/tts-api.md) ·
 [部署运维](docs/web-admin.md)
 
 </div>
@@ -27,8 +26,7 @@ CosyVoice3Pro 将提示音频的特征提取从每次推理中解耦出来：参
 注册一次，后续请求只传 `speaker_id + text` 即可完成语音合成。注册时还可
 保存默认 Prompt 画像，请求中的非空 `prompt` 会仅对本次推理覆盖默认画像。
 
-整个服务统一在 `18000` 端口提供 Web 管理后台、Triton HTTP API 和旧版
-`POST /tts/` 兼容接口。
+Web 管理后台与 Triton HTTP API 统一由 `18000` 端口提供。
 
 ## 为什么使用 CosyVoice3Pro
 
@@ -39,7 +37,6 @@ CosyVoice3Pro 将提示音频的特征提取从每次推理中解耦出来：参
 | 默认说话风格 | 客户端每次携带 | 注册时保存默认 Prompt 画像 |
 | 临时风格覆盖 | 需要自行拼装 | 请求传非空 `prompt` 即可 |
 | 管理能力 | 需要额外开发 | 内置注册、查询、更新、删除和 Web 后台 |
-| 旧客户端迁移 | 通常需要改造 | 保留 `POST /tts/` multipart 接口 |
 
 ## 核心能力
 
@@ -49,46 +46,40 @@ CosyVoice3Pro 将提示音频的特征提取从每次推理中解耦出来：参
 - **Prompt 画像**：注册默认画像，并支持单次请求覆盖。
 - **双推理模式**：支持 `speaker_id` 推理，也兼容
   `reference_wav + reference_text` 原始调用。
-- **长文本合成**：按中英文标点分段，并发推理后按原顺序拼接。
-- **多格式输出**：PCM、MP3、WAV、AAC、M4A、Opus、OGG、FLAC、WebM。
 - **Web 管理后台**：上传参考音频、管理 Speaker、在线合成、试听和下载。
 - **Triton 兼容代理**：外部 `/v2/*` 地址不变，Gateway 转发至容器内部
   Triton。
-- **旧接口兼容**：保留内置说话人 `POST /tts/` 调用方式。
 
 ## 系统架构
 
 ```text
                        :18000
- Browser / SDK / curl ───┬───────────────────────────────────┐
-                         │                                   │
-                         ▼                                   │
-              ┌──────────────────────┐                       │
-              │ CosyVoice3Pro Gateway│                       │
-              └───┬────────┬─────┬───┘                       │
-                  │        │     │                           │
-                  │ /      │     │ /v2/*                     │
-                  ▼        │     ▼                           │
-            Web Admin      │  Triton HTTP :18100             │
-                           │     │                            │
-                    /tts/  │     ├── CosyVoice3Pro            │
-                           │     ├── Speaker Registry         │
-                           │     └── upstream cosyvoice3      │
-                           ▼                                  │
-                    Audio Stream                              │
-                                                              │
-                    gRPC :18001 · Metrics :18002 ◀─────────────┘
+ Browser / SDK / curl ───────┬───────────────────────────────┐
+                             │                               │
+                             ▼                               │
+                  ┌──────────────────────┐                   │
+                  │ CosyVoice3Pro Gateway│                   │
+                  └──────┬────────┬──────┘                   │
+                         │        │                          │
+                       / │        │ /v2/*                    │
+                         ▼        ▼                          │
+                  Web Admin   Triton HTTP :18100             │
+                                  │                          │
+                                  ├── CosyVoice3Pro          │
+                                  ├── Speaker Registry       │
+                                  └── upstream cosyvoice3    │
+                                                             │
+                        gRPC :18001 · Metrics :18002 ◀────────┘
 ```
 
-`18100` 仅供容器内部 Gateway 访问。外部 Triton HTTP、Web 后台和兼容
-TTS 接口统一使用 `18000`。
+`18100` 仅供容器内部 Gateway 访问。外部 Triton HTTP 与 Web 后台统一
+使用 `18000`。
 
 ## API 入口
 
 | 地址 | 用途 |
 | --- | --- |
 | `http://HOST:18000/` | Web 管理后台 |
-| `POST http://HOST:18000/tts/` | 旧版内置说话人 TTS |
 | `http://HOST:18000/v2/` | Triton HTTP API |
 | `HOST:18001` | Triton gRPC |
 | `http://HOST:18002/metrics` | Prometheus Metrics |
@@ -142,24 +133,6 @@ curl -sS http://127.0.0.1:18000/admin/api/info
 ```
 
 ## 30 秒调用示例
-
-### 使用内置说话人
-
-旧版 `/tts/` 客户端可以直接迁移，只需将端口改为 `18000`：
-
-```bash
-curl --fail-with-body \
-  -X POST "http://127.0.0.1:18000/tts/" \
-  -F "text=你好，这是一个 CosyVoice3Pro 接口测试。" \
-  -F "tts_style=1" \
-  -F "speed=balanced" \
-  -F "volume=middle" \
-  -F "output_format=mp3" \
-  --output tts_output.mp3
-```
-
-`tts_style=1～4` 分别对应四个预置 Speaker。完整参数见
-[`docs/tts-api.md`](docs/tts-api.md)。
 
 ### 注册自己的 Speaker
 
@@ -258,7 +231,6 @@ bash manage.sh backup
 CosyVoice3Pro/
 ├── gateway/
 │   ├── app.py                         # Web Gateway 与 Triton 反向代理
-│   ├── legacy_tts.py                  # POST /tts/ 兼容层
 │   └── web/                           # Web 管理后台
 ├── models/
 │   ├── CosyVoice3Pro/                 # Speaker ID / Raw Prompt 推理
@@ -267,7 +239,6 @@ CosyVoice3Pro/
 │   └── client.py                      # 注册、查询和推理客户端
 ├── docs/
 │   ├── api.md                         # Triton API 与 curl
-│   ├── tts-api.md                     # /tts/ 兼容接口
 │   └── web-admin.md                   # Gateway 部署与运维
 ├── data/
 │   └── speakers/                      # 本地声纹数据，不提交
@@ -303,7 +274,6 @@ bash manage.sh backup
 - 保留上游 `cosyvoice3` Triton 模型，方便旧调用回滚。
 - 保留原始 `reference_wav + reference_text + target_text` 推理。
 - `instruct_text` 仍可作为 `prompt` 的兼容别名。
-- 保留旧版 `POST /tts/` multipart 请求格式。
 - 暂时关闭 Gateway 时，Triton 可直接监听外部 `18000`：
 
 ```bash
@@ -330,7 +300,6 @@ Web 管理后台和 Triton API 默认不包含应用层登录认证。部署到�
 ## 文档
 
 - [Triton Speaker Registry 与推理 API](docs/api.md)
-- [`POST /tts/` 兼容接口](docs/tts-api.md)
 - [Web Gateway 部署与运维](docs/web-admin.md)
 
 ## 致谢与上游
