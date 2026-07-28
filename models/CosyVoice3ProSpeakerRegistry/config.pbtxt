@@ -1,0 +1,85 @@
+name: "CosyVoice3ProSpeakerRegistry"
+backend: "python"
+max_batch_size: 1
+
+dynamic_batching {
+  max_queue_delay_microseconds: 0
+}
+
+parameters [
+  {
+    key: "speaker_store_dir"
+    value: {
+      string_value: "/workspace/cosyvoice_speaker_store"
+    }
+  },
+  {
+    key: "max_reference_seconds"
+    value: {
+      string_value: "30"
+    }
+  }
+]
+
+input [
+  {
+    name: "operation"
+    data_type: TYPE_STRING
+    dims: [1]
+  },
+  {
+    name: "speaker_id"
+    data_type: TYPE_STRING
+    dims: [1]
+    optional: true
+  },
+  {
+    name: "reference_wav"
+    data_type: TYPE_FP32
+    dims: [-1]
+    optional: true
+  },
+  {
+    name: "reference_wav_len"
+    data_type: TYPE_INT32
+    dims: [1]
+    optional: true
+  },
+  {
+    name: "reference_text"
+    data_type: TYPE_STRING
+    dims: [1]
+    optional: true
+  },
+  {
+    name: "prompt"
+    data_type: TYPE_STRING
+    dims: [1]
+    optional: true
+  }
+]
+
+output [
+  {
+    name: "status"
+    data_type: TYPE_STRING
+    dims: [1]
+  },
+  {
+    name: "message"
+    data_type: TYPE_STRING
+    dims: [1]
+  },
+  {
+    name: "speaker_version"
+    data_type: TYPE_STRING
+    dims: [1]
+  }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_CPU
+  }
+]

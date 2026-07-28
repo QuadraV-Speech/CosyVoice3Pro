@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Editors and OS files
+.vscode/
+.idea/
+.DS_Store
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.crt
+
+# Runtime data and logs
+data/
+tmp/
+logs/
+*.log
+*.pid
+
+# Generated audio and test output
+tts_output*
+output.*
+
+# Build and packaging
+build/
+dist/
+*.egg-info/

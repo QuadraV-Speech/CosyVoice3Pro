@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111310">
+  <title>CosyVoice3Pro · 声音工作台</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="CosyVoice3Pro 首页">
+        <span class="brand-mark" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+        </span>
+        <span>
+          <strong>CosyVoice</strong>
+          <small>3 PRO</small>
+        </span>
+      </a>
+
+      <nav class="nav-list" aria-label="页面导航">
+        <button class="nav-item is-active" data-scroll="studio">
+          <span class="nav-icon">⌁</span>
+          <span>合成工作台</span>
+        </button>
+        <button class="nav-item" data-scroll="speakers">
+          <span class="nav-icon">◉</span>
+          <span>声纹管理</span>
+        </button>
+        <button class="nav-item" data-scroll="status">
+          <span class="nav-icon">◇</span>
+          <span>服务状态</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="mini-status">
+          <span class="status-dot" id="sidebar-status-dot"></span>
+          <span>
+            <small>TRITON ENGINE</small>
+            <strong id="sidebar-status-text">正在连接</strong>
+          </span>
+        </div>
+        <span class="version">Web Gateway v1.0</span>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">VOICE OPERATIONS</p>
+          <h1>声音工作台</h1>
+        </div>
+        <div class="topbar-actions">
+          <button class="button button-ghost" id="refresh-all" type="button">
+            <span aria-hidden="true">↻</span> 刷新状态
+          </button>
+          <button class="button button-primary" id="open-register" type="button">
+            <span aria-hidden="true">＋</span> 注册新声纹
+          </button>
+        </div>
+      </header>
+
+      <section class="status-strip" id="status" aria-label="服务状态">
+        <article class="status-card">
+          <span class="status-orb" id="gateway-orb"></span>
+          <div>
+            <small>WEB GATEWAY</small>
+            <strong id="gateway-status">检测中</strong>
+          </div>
+          <span class="status-meta">:18000</span>
+        </article>
+        <article class="status-card">
+          <span class="status-orb" id="triton-orb"></span>
+          <div>
+            <small>TRITON SERVER</small>
+            <strong id="triton-status">检测中</strong>
+          </div>
+          <span class="status-meta">HTTP</span>
+        </article>
+        <article class="status-card">
+          <span class="status-orb" id="model-orb"></span>
+          <div>
+            <small>COSYVOICE3PRO</small>
+            <strong id="model-status">检测中</strong>
+          </div>
+          <span class="status-meta">MODEL</span>
+        </article>
+        <article class="status-card">
+          <span class="status-orb is-neutral"></span>
+          <div>
+            <small>REGISTERED</small>
+            <strong><span id="speaker-count">0</span> 个声纹</strong>
+          </div>
+          <span class="status-meta">STORE</span>
+        </article>
+      </section>
+
+      <section class="workspace-grid" id="studio">
+        <article class="panel synthesis-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="section-index">01 / SYNTHESIS</p>
+              <h2>生成一段声音</h2>
+              <p>选择注册声纹，输入文本即可生成 24kHz 音频。</p>
+            </div>
+            <span class="panel-badge">CosyVoice3Pro</span>
+          </div>
+
+          <form id="synthesis-form">
+            <div class="field">
+              <label for="speaker-select">说话人</label>
+              <div class="select-wrap">
+                <select id="speaker-select" required>
+                  <option value="">请先注册或选择声纹</option>
+                </select>
+              </div>
+              <div class="persona-preview" id="persona-preview">
+                <span>默认画像</span>
+                <p>选择声纹后显示</p>
+              </div>
+            </div>
+
+            <div class="field">
+              <div class="label-row">
+                <label for="request-prompt">本次画像覆盖</label>
+                <span>可选 · 留空使用默认画像</span>
+              </div>
+              <textarea
+                id="request-prompt"
+                rows="3"
+                maxlength="512"
+                placeholder="例如：请用温柔、舒缓、略带笑意的语气说话。"></textarea>
+              <div class="prompt-presets" aria-label="画像快捷选项">
+                <button type="button" data-prompt="">默认</button>
+                <button type="button" data-prompt="请非常开心、兴奋地说话。">开心</button>
+                <button type="button" data-prompt="请用温柔、舒缓的语气说话。">温柔</button>
+                <button type="button" data-prompt="请用严肃、专业的语气说话。">专业</button>
+                <button type="button" data-prompt="请用尽可能快的语速说话。">快速</button>
+              </div>
+            </div>
+
+            <div class="field">
+              <div class="label-row">
+                <label for="target-text">合成文本</label>
+                <span><b id="text-count">0</b> / 1000</span>
+              </div>
+              <textarea
+                id="target-text"
+                rows="7"
+                maxlength="1000"
+                required
+                placeholder="输入需要转换为语音的文本……"></textarea>
+            </div>
+
+            <button class="button button-primary button-generate" id="generate-button" type="submit">
+              <span class="button-wave" aria-hidden="true">
+                <i></i><i></i><i></i><i></i>
+              </span>
+              <span class="button-label">生成语音</span>
+            </button>
+          </form>
+        </article>
+
+        <aside class="panel output-panel">
+          <div class="panel-heading compact">
+            <div>
+              <p class="section-index">LIVE OUTPUT</p>
+              <h2>试听结果</h2>
+            </div>
+            <span class="result-state" id="result-state">等待生成</span>
+          </div>
+
+          <div class="wave-visual" id="wave-visual" aria-hidden="true">
+            <div class="wave-grid"></div>
+            <div class="wave-bars" id="wave-bars"></div>
+            <span class="play-disc">▶</span>
+          </div>
+
+          <div class="empty-output" id="empty-output">
+            <strong>还没有生成音频</strong>
+            <p>完成一次合成后，可在这里试听并下载 WAV。</p>
+          </div>
+
+          <div class="audio-result is-hidden" id="audio-result">
+            <audio id="audio-player" controls preload="metadata"></audio>
+            <div class="result-metrics">
+              <div><span>时长</span><strong id="result-duration">—</strong></div>
+              <div><span>采样率</span><strong>24 kHz</strong></div>
+              <div><span>耗时</span><strong id="result-latency">—</strong></div>
+            </div>
+            <a class="button button-secondary" id="download-audio" download="cosyvoice3pro.wav">
+              下载 WAV
+            </a>
+          </div>
+
+          <div class="request-note">
+            <span>API</span>
+            <code>POST /v2/models/CosyVoice3Pro/infer</code>
+          </div>
+        </aside>
+      </section>
+
+      <section class="panel speakers-panel" id="speakers">
+        <div class="panel-heading speakers-heading">
+          <div>
+            <p class="section-index">02 / SPEAKER REGISTRY</p>
+            <h2>声纹资产</h2>
+            <p>注册一次，后续推理只需要传递 speaker_id。</p>
+          </div>
+          <div class="table-tools">
+            <label class="search-box">
+              <span aria-hidden="true">⌕</span>
+              <input id="speaker-search" type="search" placeholder="搜索 speaker_id">
+            </label>
+            <button class="button button-secondary" id="open-register-secondary" type="button">注册声纹</button>
+          </div>
+        </div>
+
+        <div class="speaker-table-wrap">
+          <table class="speaker-table">
+            <thead>
+              <tr>
+                <th>说话人</th>
+                <th>默认画像</th>
+                <th>参考音频</th>
+                <th>版本</th>
+                <th>注册时间</th>
+                <th><span class="sr-only">操作</span></th>
+              </tr>
+            </thead>
+            <tbody id="speaker-table-body"></tbody>
+          </table>
+          <div class="table-empty" id="table-empty">
+            <span class="empty-icon">◉</span>
+            <strong>还没有注册声纹</strong>
+            <p>注册第一个 Speaker，开始使用免音频推理。</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog class="register-dialog" id="register-dialog">
+    <form method="dialog" class="dialog-shell" id="register-form">
+      <header class="dialog-heading">
+        <div>
+          <p class="section-index">NEW SPEAKER</p>
+          <h2>注册声纹</h2>
+          <p>提示音频只在注册时处理一次，后续直接使用 Speaker ID。</p>
+        </div>
+        <button class="icon-button" id="close-register" type="button" aria-label="关闭">×</button>
+      </header>
+
+      <div class="dialog-body">
+        <div class="field">
+          <label for="register-speaker-id">Speaker ID</label>
+          <input
+            id="register-speaker-id"
+            type="text"
+            maxlength="128"
+            pattern="[A-Za-z0-9_.-]+"
+            placeholder="例如：narrator_female_01"
+            required>
+          <small>允许字母、数字、下划线、中划线和点。</small>
+        </div>
+
+        <div class="field">
+          <label>提示音频</label>
+          <label class="drop-zone" id="drop-zone" for="reference-audio">
+            <input id="reference-audio" type="file" accept="audio/*,.m4a">
+            <span class="upload-icon">↥</span>
+            <strong id="upload-title">点击选择或拖入音频</strong>
+            <p id="upload-meta">支持 WAV、MP3、M4A；建议 3～10 秒清晰单人声</p>
+          </label>
+        </div>
+
+        <div class="field">
+          <label for="reference-text">提示音频原文</label>
+          <textarea
+            id="reference-text"
+            rows="3"
+            required
+            placeholder="准确填写音频中实际说出的内容。"></textarea>
+        </div>
+
+        <div class="field">
+          <div class="label-row">
+            <label for="default-prompt">默认画像 Prompt</label>
+            <span>可选 · 最多 512 字</span>
+          </div>
+          <textarea
+            id="default-prompt"
+            rows="3"
+            maxlength="512"
+            placeholder="例如：请用成熟、稳重、亲切的语气说话。"></textarea>
+        </div>
+      </div>
+
+      <footer class="dialog-actions">
+        <button class="button button-ghost" value="cancel" type="button" id="cancel-register">取消</button>
+        <button class="button button-primary" type="submit" id="register-button">
+          提取特征并注册
+        </button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div class="toast-region" id="toast-region" aria-live="polite"></div>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>
