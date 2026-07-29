@@ -31,13 +31,41 @@
 
 ---
 
-> **核心差异：** 将提示音频的特征提取从每次推理中解耦。参考音频只注册
-> 一次，后续请求只传 `speakerId + text`，不再重复上传 Prompt Audio。
+> [!IMPORTANT]
+> **官方 CosyVoice3 解决“高质量生成”，CosyVoice3Pro 解决“如何把它稳定、
+> 高效地提供给业务”。** Pro 完整保留官方模型与 Triton 高级接口，并增加
+> 可持久化 Speaker Registry、开发者友好 REST API、音频后处理、Web 工作台
+> 和面向 A100 的并发 Profile。
 
-注册时可以保存默认 Prompt 画像；推理请求中的非空 `prompt` 仅覆盖本次
-画像。开发者通过普通 HTTP 即可完成健康检查、声纹注册、查询、删除和
-TTS，无需构造 Triton Tensor JSON。Web 工作台和 API 全部由 `18000`
-端口提供。
+最直接的变化是声纹与推理解耦：参考音频注册一次，后续请求只传
+`speakerId + text`。注册时还可以保存默认 Prompt 画像；单次请求传入非空
+`prompt` 即可临时覆盖，无需重复上传音频或在每个客户端拼装 Tensor。
+
+## 官方 CosyVoice3 与 CosyVoice3Pro
+
+以下对比针对
+[官方 CosyVoice3 Triton Runtime](https://github.com/FunAudioLLM/CosyVoice/blob/074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc/runtime/triton_trtllm/README.Cosyvoice3.md)。
+Pro 使用相同的 `Fun-CosyVoice3-0.5B-2512` 模型与 TensorRT-LLM
+推理核心，优势集中在生产服务层，而不是声称修改了官方模型能力。
+
+| 维度 | 官方 CosyVoice3 Triton Runtime | CosyVoice3Pro |
+| --- | --- | --- |
+| 模型与音质 | 官方 CosyVoice3 模型 | **完全继承官方模型** |
+| 业务调用 | Triton V2 / gRPC Tensor，需要组织参考音频与文本输入 | **普通 REST、表单和音频流；curl 即可调用** |
+| 声纹复用 | 默认携带参考音频；可选进程内缓存，但没有持久化 Speaker 实体 | **注册一次，持久化特征，后续只传 `speakerId`** |
+| 多 Speaker 管理 | 没有面向业务的查增删 API | **注册、更新、列表、详情、删除完整闭环** |
+| 跨重启复用 | 进程内缓存随服务结束 | **Speaker Registry 持久化并按需加载** |
+| Prompt 画像 | 客户端随请求组织参考文本/指令 | **注册默认画像，非空请求 Prompt 单次覆盖** |
+| 注册来源 | 客户端准备音频 Tensor | **上传文件或公开音频 URL** |
+| 统一 TTS | 不同推理方式由客户端组织 | **内置声音、Speaker ID、即时克隆统一 `/tts/`** |
+| 音频交付 | 返回模型波形，业务自行处理 | **语速、音量、长文本分段及 9 种输出格式** |
+| Web 管理 | Triton Runtime 不含同端口业务后台 | **18000 同端口 Web 工作台，且只调用 Public API** |
+| 并发调优 | 手工调整实例与 KV 参数 | **按 GPU 显存自动选择 `balanced` / `throughput`** |
+| 可观测性 | Triton 原生指标 | **保留 Metrics，并增加健康检查与分阶段耗时响应头** |
+| 流式能力 | 官方 decoupled streaming | 高级 Triton 接口保留；Public `/tts/` 当前返回完整音频 |
+
+一句话概括：**CosyVoice3Pro = 官方 CosyVoice3 推理核心 + 可复用声纹层 +
+面向开发者的 API + 可直接交付的音频 + 生产运维能力。**
 
 <div align="center">
   <a href="docs/assets/web-console.png">
@@ -50,23 +78,27 @@ TTS，无需构造 Triton Tensor JSON。Web 工作台和 API 全部由 `18000`
 > CosyVoice3Pro 是基于上游 CosyVoice 构建的社区部署项目，并非
 > FunAudioLLM 官方发行版。“Pro”指本项目增加的服务化与工程能力。
 
-## 为什么使用 CosyVoice3Pro
-
-| 能力 | 原始 Zero-shot 调用 | CosyVoice3Pro |
-| --- | --- | --- |
-| 提示音频 | 每次请求重复上传 | 注册一次，后续只传 `speaker_id` |
-| 声纹特征 | 每次重复提取 | 持久化并按需加载 |
-| 默认说话风格 | 客户端每次携带 | 注册时保存默认 Prompt 画像 |
-| 临时风格覆盖 | 需要自行拼装 | 请求传非空 `prompt` 即可 |
-| 声音来源 | 接口分散 | 内置声音、Speaker ID、即时提示音频统一入口 |
-| 音频后处理 | 客户端自行完成 | 服务端统一处理语速、音量、分段和编码 |
-| 管理能力 | 需要额外开发 | 内置注册、查询、更新、删除和 Web 后台 |
-
 ## 实测性能
 
 端到端测试包含 Web Gateway、Speaker Registry、模型推理、后处理和 WAV
 响应传输，不是只统计模型内部耗时。系统 RTF 使用官方聚合口径：
 `整组墙钟时间 / 全部输出音频总时长`。
+
+### 官方默认配置与 Pro Profile
+
+同一台 A100、同一模型与 Engine、同一业务链路、文本、Speaker、后处理、
+12 并发、48 个请求和 12 次预热，仅改变服务 Profile：
+
+| A100-SXM4-80GB 配置 | 成功率 | P50 | P95 | 系统 RTF | 音频吞吐 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 官方默认核心参数复现 | 48/48 | 3.67s | 4.41s | 0.0391 | 25.61x |
+| **CosyVoice3Pro `throughput`** | **48/48** | **3.40s** | **4.22s** | **0.0329** | **30.42x** |
+
+Pro Profile 的系统 RTF 降低 **15.8%**，音频吞吐提升 **18.8%**。
+这里的“官方默认核心参数复现”仍使用相同 Pro Public API，以严格控制业务
+链路；它不是 FunAudioLLM 发布的 A100 官方数字。
+
+### Pro 高并发扩展
 
 | 环境 | 并发 | 成功率 | P50 | P95 | 系统 RTF | 音频吞吐 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
