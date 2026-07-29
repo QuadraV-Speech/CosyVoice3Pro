@@ -12,6 +12,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![CI](https://github.com/QuadraV-Speech/CosyVoice3Pro/actions/workflows/ci.yml/badge.svg)](https://github.com/QuadraV-Speech/CosyVoice3Pro/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/QuadraV-Speech/CosyVoice3Pro)](https://github.com/QuadraV-Speech/CosyVoice3Pro/releases)
+[![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![NVIDIA Triton](https://img.shields.io/badge/NVIDIA-Triton-76B900?logo=nvidia&logoColor=white)](https://github.com/triton-inference-server/server)
 [![TensorRT--LLM](https://img.shields.io/badge/TensorRT--LLM-Accelerated-76B900)](https://github.com/NVIDIA/TensorRT-LLM)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
@@ -384,6 +385,16 @@ Web 管理后台、声纹注册、TTS 与 Triton API 默认不包含应用层登
 - [内部 Triton 高级 API](docs/advanced-api.md)
 - [性能基准与复现](docs/benchmark.md)
 - [Web Gateway 部署与运维](docs/web-admin.md)
+- [版本变更记录](CHANGELOG.md)
+- [安全策略](SECURITY.md)
+
+## 开源许可
+
+CosyVoice3Pro 的原创代码与文档使用
+[Apache License 2.0](LICENSE)，归属声明见 [NOTICE](NOTICE)。
+
+模型权重、基础镜像、CosyVoice、NVIDIA Triton、TensorRT-LLM 及其他上游
+组件不因本仓库许可证而重新授权，仍分别受其原始许可证和使用条款约束。
 
 ## 参与贡献
 

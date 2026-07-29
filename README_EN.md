@@ -12,6 +12,7 @@ with a reusable Speaker Registry, developer-friendly API, and Web console.
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![CI](https://github.com/QuadraV-Speech/CosyVoice3Pro/actions/workflows/ci.yml/badge.svg)](https://github.com/QuadraV-Speech/CosyVoice3Pro/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/QuadraV-Speech/CosyVoice3Pro)](https://github.com/QuadraV-Speech/CosyVoice3Pro/releases)
+[![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![NVIDIA Triton](https://img.shields.io/badge/NVIDIA-Triton-76B900?logo=nvidia&logoColor=white)](https://github.com/triton-inference-server/server)
 [![TensorRT--LLM](https://img.shields.io/badge/TensorRT--LLM-Accelerated-76B900)](https://github.com/NVIDIA/TensorRT-LLM)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
@@ -264,12 +265,22 @@ Bug reports, documentation, compatibility results, benchmark data, and pull
 requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting
 a change.
 
+## License
+
+Original CosyVoice3Pro code and documentation are licensed under the
+[Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution.
+
+Model weights, base images, CosyVoice, NVIDIA Triton, TensorRT-LLM, and other
+upstream components retain their respective original licenses and terms.
+
 ## Documentation
 
 - [Public API](docs/public-api.md)
 - [Advanced Triton API](docs/advanced-api.md)
 - [Benchmark](docs/benchmark.md)
 - [Web Gateway operations](docs/web-admin.md)
+- [Changelog](CHANGELOG.md)
+- [Security Policy](SECURITY.md)
 
 ## Acknowledgements
 
