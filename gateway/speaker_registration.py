@@ -27,7 +27,7 @@ MAX_REFERENCE_TEXT_LENGTH = 4096
 MAX_REDIRECTS = 3
 DOWNLOAD_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 REDIRECT_STATUSES = {301, 302, 303, 307, 308}
-_registration_semaphore = asyncio.Semaphore(2)
+_registry_semaphore = asyncio.Semaphore(2)
 
 
 def _aliased_field(fields, primary, alias):
@@ -280,32 +280,42 @@ def _registry_payload(speaker_id, waveform, reference_text, prompt):
     }
 
 
+def _registry_operation_payload(operation, speaker_id=""):
+    inputs = [
+        {
+            "name": "operation",
+            "shape": [1, 1],
+            "datatype": "BYTES",
+            "data": [operation],
+        },
+    ]
+    if speaker_id:
+        inputs.append(
+            {
+                "name": "speaker_id",
+                "shape": [1, 1],
+                "datatype": "BYTES",
+                "data": [speaker_id],
+            }
+        )
+    return {"inputs": inputs}
+
+
 def _first_output(outputs, name):
     values = outputs.get(name) or []
     return values[0] if values else ""
 
 
-async def _register_with_triton(
-    request,
-    speaker_id,
-    waveform,
-    reference_text,
-    prompt,
-):
+async def _call_registry(request, payload, timeout=30):
     upstream = request.app.state.triton_upstream
     url = f"{upstream}/v2/models/{REGISTRY_MODEL}/infer"
     try:
-        async with _registration_semaphore:
+        async with _registry_semaphore:
             response = await request.app.state.http_client.post(
                 url,
-                params={"request_id": f"register-{uuid4().hex}"},
-                json=_registry_payload(
-                    speaker_id,
-                    waveform,
-                    reference_text,
-                    prompt,
-                ),
-                timeout=180,
+                params={"request_id": f"registry-{uuid4().hex}"},
+                json=payload,
+                timeout=timeout,
             )
     except httpx.HTTPError as exc:
         raise HTTPException(
@@ -325,7 +335,7 @@ async def _register_with_triton(
         )
         raise HTTPException(
             status_code=status_code,
-            detail=f"声纹注册失败：{upstream_error}",
+            detail=f"Speaker Registry 请求失败：{upstream_error}",
         )
 
     try:
@@ -336,19 +346,64 @@ async def _register_with_triton(
         status = str(_first_output(outputs, "status"))
         speaker_version = str(_first_output(outputs, "speaker_version"))
         message_value = _first_output(outputs, "message")
-        metadata = json.loads(message_value) if message_value else {}
+        message = json.loads(message_value) if message_value else {}
     except (KeyError, TypeError, ValueError) as exc:
         raise HTTPException(
             status_code=502,
             detail="Speaker Registry 返回了非法响应",
         ) from exc
 
-    if status != "ok" or not isinstance(metadata, dict):
+    if not isinstance(message, dict):
+        raise HTTPException(
+            status_code=502,
+            detail="Speaker Registry 返回了非法 message",
+        )
+    return status, speaker_version, message
+
+
+async def _register_with_triton(
+    request,
+    speaker_id,
+    waveform,
+    reference_text,
+    prompt,
+):
+    status, speaker_version, metadata = await _call_registry(
+        request,
+        _registry_payload(
+            speaker_id,
+            waveform,
+            reference_text,
+            prompt,
+        ),
+        timeout=180,
+    )
+    if status != "ok":
         raise HTTPException(
             status_code=502,
             detail="Speaker Registry 未确认注册成功",
         )
     return speaker_version, metadata
+
+
+def _public_speaker(metadata):
+    return {
+        "speakerId": metadata.get("speaker_id", ""),
+        "speakerVersion": metadata.get("speaker_version", ""),
+        "referenceText": metadata.get("reference_transcript", ""),
+        "prompt": metadata.get("prompt", ""),
+        "sampleRate": metadata.get("sample_rate"),
+        "samples": metadata.get("samples"),
+        "durationSeconds": metadata.get("duration_seconds"),
+        "registeredAt": metadata.get("registered_at"),
+    }
+
+
+def _path_speaker_id(speaker_id):
+    result = _speaker_id_field({"speakerId": speaker_id})
+    if not result:
+        raise HTTPException(status_code=400, detail="speakerId 不能为空")
+    return result
 
 
 @router.post("/register")
@@ -425,5 +480,86 @@ async def register_speaker(request: Request):
         "speakerId": speaker_id,
         "speakerVersion": speaker_version,
         "source": source,
+        "speaker": _public_speaker(metadata),
+        # Retained for clients of the initial /register release.
         "metadata": metadata,
+    }
+
+
+@router.get("/speakers")
+async def list_speakers(request: Request):
+    status, _, message = await _call_registry(
+        request,
+        _registry_operation_payload("list"),
+    )
+    if status != "ok":
+        raise HTTPException(
+            status_code=502,
+            detail="Speaker Registry 未能列出声纹",
+        )
+    speakers = message.get("speakers", [])
+    if not isinstance(speakers, list):
+        raise HTTPException(
+            status_code=502,
+            detail="Speaker Registry 返回了非法声纹列表",
+        )
+    public_speakers = [
+        _public_speaker(speaker)
+        for speaker in speakers
+        if isinstance(speaker, dict)
+    ]
+    return {
+        "status": "ok",
+        "count": len(public_speakers),
+        "speakers": public_speakers,
+    }
+
+
+@router.get("/speakers/{speaker_id}")
+async def inspect_speaker(speaker_id: str, request: Request):
+    speaker_id = _path_speaker_id(speaker_id)
+    status, speaker_version, message = await _call_registry(
+        request,
+        _registry_operation_payload("inspect", speaker_id),
+    )
+    if status == "not_found":
+        raise HTTPException(
+            status_code=404,
+            detail=f"speakerId 不存在：{speaker_id}",
+        )
+    if status != "ok":
+        raise HTTPException(
+            status_code=502,
+            detail="Speaker Registry 未能查询声纹",
+        )
+    message.setdefault("speaker_id", speaker_id)
+    message.setdefault("speaker_version", speaker_version)
+    return {
+        "status": "ok",
+        "speaker": _public_speaker(message),
+    }
+
+
+@router.delete("/speakers/{speaker_id}")
+async def delete_speaker(speaker_id: str, request: Request):
+    speaker_id = _path_speaker_id(speaker_id)
+    status, speaker_version, message = await _call_registry(
+        request,
+        _registry_operation_payload("delete", speaker_id),
+    )
+    if status == "not_found":
+        raise HTTPException(
+            status_code=404,
+            detail=f"speakerId 不存在：{speaker_id}",
+        )
+    if status != "ok" or not message.get("deleted"):
+        raise HTTPException(
+            status_code=502,
+            detail="Speaker Registry 未确认删除成功",
+        )
+    return {
+        "status": "ok",
+        "speakerId": speaker_id,
+        "speakerVersion": speaker_version,
+        "deleted": True,
     }

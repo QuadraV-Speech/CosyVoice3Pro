@@ -31,7 +31,10 @@ http://服务器地址:18000/v2/
               |
     CosyVoice3Pro Web Gateway
        |              |             |
-       | /            | /register   | /v2/*
+       | /            | Public API  | Advanced API
+       |              | /health     | /v2/*
+       |              | /register   |
+       |              | /speakers   |
        |              | /tts/       |
        v              v             v
   静态管理网页      业务 API     Triton HTTP :18100
@@ -41,7 +44,8 @@ http://服务器地址:18000/v2/
 
 `18100` 只在容器内部使用，没有映射到宿主机。原有调用
 `http://服务器:18000/v2/...` 会由 Gateway 原样代理，因此 curl 和现有
-客户端不需要修改地址。
+客户端不需要修改地址。网页本身只使用 Public API，不直接调用 `/v2/*`
+或 `/admin/*`。
 
 ## 3. 页面功能
 
@@ -75,9 +79,8 @@ bash manage.sh logs
 健康检查：
 
 ```bash
-curl -f http://127.0.0.1:18000/v2/health/ready
-curl -f http://127.0.0.1:18000/v2/models/CosyVoice3Pro/ready
-curl -sS http://127.0.0.1:18000/admin/api/info
+curl --fail-with-body \
+  http://127.0.0.1:18000/health
 ```
 
 ## 5. Speaker 数据备份
@@ -121,7 +124,9 @@ bash manage.sh restart
 
 - `/v2/*` Triton API 继续使用 `18000`
 - `/` 不再提供管理网页
+- `/health` 不再提供对外聚合健康检查
 - `/register` 不再提供对外声纹注册
+- `/speakers` 不再提供对外声纹查询和删除
 - `/tts/` 不再提供音频流接口
 - `18001` 和 `18002` 不变
 
@@ -139,7 +144,13 @@ data/speakers/
 Web Gateway、Triton Models、命令行客户端和 Speaker 数据均属于
 CosyVoice3Pro 自身，不依赖额外的 Python UI 服务。网页的文件上传和
 音频 URL 注册都通过 `POST /register` 完成，由服务端统一下载、转码和
-校验。
+校验。列表、查询和删除分别通过 `GET /speakers`、
+`GET /speakers/{speakerId}` 和 `DELETE /speakers/{speakerId}` 完成。
+
+接口说明：
+
+- [对外开发者 API](public-api.md)
+- [内部 Triton 高级 API](advanced-api.md)
 
 ## 8. 安全说明
 

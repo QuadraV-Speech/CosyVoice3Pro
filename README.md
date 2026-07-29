@@ -15,7 +15,7 @@
 
 [快速开始](#快速开始) ·
 [Web 后台](#web-管理后台) ·
-[API 文档](docs/api.md) ·
+[对外 API](docs/public-api.md) ·
 [部署运维](docs/web-admin.md)
 
 </div>
@@ -23,13 +23,12 @@
 ---
 
 CosyVoice3Pro 将提示音频的特征提取从每次推理中解耦出来：参考音频只需
-注册一次，后续请求只传 `speaker_id + text` 即可完成语音合成。注册时还可
+注册一次，后续请求只传 `speakerId + text` 即可完成语音合成。注册时还可
 保存默认 Prompt 画像，请求中的非空 `prompt` 会仅对本次推理覆盖默认画像。
 
-统一 `/tts/` 接口同时支持内置声音、注册 Speaker ID、即时提示音频以及
-语速、音量、长文本和多种输出编码。对外 `/register` 接口支持上传音频或
-使用公开音频 URL 注册声纹。Web 管理后台与全部 HTTP API 统一由 `18000`
-端口提供。
+开发者通过普通 HTTP 接口即可完成健康检查、声纹注册、查询、删除和 TTS：
+`/health`、`/register`、`/speakers`、`/tts/`。无需构造 Triton Tensor
+JSON。Web 管理后台也完全基于这组对外 API，全部由 `18000` 端口提供。
 
 ## 为什么使用 CosyVoice3Pro
 
@@ -49,50 +48,69 @@ CosyVoice3Pro 将提示音频的特征提取从每次推理中解耦出来：参
 - **声纹解耦**：持久化 Prompt Speech Tokens、Mel 特征和 Speaker
   Embedding。
 - **Prompt 画像**：注册默认画像，并支持单次请求覆盖。
-- **双推理模式**：支持 `speaker_id` 推理，也兼容
-  `reference_wav + reference_text` 原始调用。
-- **统一 TTS API**：`POST /tts/` 支持内置声音、注册声纹和即时克隆。
-- **对外注册 API**：`POST /register` 支持音频文件和公开音频 URL。
+- **开发者友好 API**：普通 JSON、表单和音频流，无需了解 Tensor 协议。
+- **声纹查增删**：注册/更新、列表、单个查询和删除接口完整覆盖。
+- **统一 TTS API**：支持内置声音、注册声纹和即时克隆。
+- **双来源注册**：支持上传音频文件和公开音频 URL。
 - **音频后处理**：支持长文本分段、语速、音量以及九种输出格式。
 - **Web 管理后台**：上传参考音频、管理 Speaker、配置后处理、试听和下载。
-- **Triton 兼容代理**：外部 `/v2/*` 地址不变，Gateway 转发至容器内部
-  Triton。
+- **高级接口保留**：平台和模型工程可继续使用 Triton `/v2/*`。
 
 ## 系统架构
 
 ```text
-                       :18000
- Browser / SDK / curl ───────┬───────────────────────────────┐
-                             │                               │
-                             ▼                               │
-                  ┌──────────────────────┐                   │
-                  │ CosyVoice3Pro Gateway│                   │
-                  └───┬────────┬────────┬───┘                │
-                      │        │        │                    │
-                    / │ /register·/tts/ │ /v2/*               │
-                      ▼        ▼        ▼                    │
-                 Web Admin Public API Triton HTTP :18100     │
-                                      │                      │
-                                      ├── CosyVoice3Pro      │
-                                      ├── Speaker Registry   │
-                                      └── upstream cosyvoice3│
-                                                             │
-                        gRPC :18001 · Metrics :18002 ◀────────┘
+ Browser / SDK / curl
+          │
+          │ :18000
+          ▼
+ ┌─────────────────────────────────────────────┐
+ │          CosyVoice3Pro Gateway              │
+ │                                             │
+ │ Public API                                  │
+ │ /health · /register · /speakers · /tts/     │
+ │       ▲                                     │
+ │       └──────── Web Admin 使用同一组 API     │
+ │                                             │
+ │ Advanced API                                │
+ │ /v2/* ───────────────► Triton HTTP :18100   │
+ └──────────────────────────┬──────────────────┘
+                            ├── CosyVoice3Pro
+                            ├── Speaker Registry
+                            └── upstream cosyvoice3
+
+ gRPC :18001 · Metrics :18002
 ```
 
-`18100` 仅供容器内部 Gateway 访问。外部 Triton HTTP、TTS 音频接口与
-Web 后台统一使用 `18000`。
+`18100` 仅供容器内部 Gateway 访问。业务开发优先使用 Public API；模型
+调试和平台运维才需要 Advanced API。
 
 ## API 入口
 
+### 对外 API
+
+| 方法 | 地址 | 用途 |
+| --- | --- | --- |
+| `GET` | `http://HOST:18000/health` | 服务健康检查 |
+| `POST` | `http://HOST:18000/register` | 上传音频或 URL 注册/更新声纹 |
+| `GET` | `http://HOST:18000/speakers` | 查询全部声纹 |
+| `GET` | `http://HOST:18000/speakers/{speakerId}` | 查询单个声纹 |
+| `DELETE` | `http://HOST:18000/speakers/{speakerId}` | 删除声纹 |
+| `POST` | `http://HOST:18000/tts/` | 生成处理后的音频 |
+| `GET` | `http://HOST:18000/` | Web 管理后台 |
+
+完整参数、响应和 curl 见
+[对外 API 文档](docs/public-api.md)。
+
+### 内部高级 API
+
 | 地址 | 用途 |
 | --- | --- |
-| `http://HOST:18000/` | Web 管理后台 |
-| `POST http://HOST:18000/register` | 上传音频或 URL 注册声纹 |
-| `POST http://HOST:18000/tts/` | 统一 TTS 音频流接口 |
 | `http://HOST:18000/v2/` | Triton HTTP API |
 | `HOST:18001` | Triton gRPC |
 | `http://HOST:18002/metrics` | Prometheus Metrics |
+
+Tensor 协议、模型输入和 Registry 内部操作见
+[内部高级 API 文档](docs/advanced-api.md)。
 
 ## 快速开始
 
@@ -136,10 +154,8 @@ bash manage.sh start
 ### 4. 检查状态
 
 ```bash
-curl -f http://127.0.0.1:18000/v2/health/ready
-curl -f http://127.0.0.1:18000/v2/models/CosyVoice3Pro/ready
-curl -f http://127.0.0.1:18000/v2/models/CosyVoice3ProSpeakerRegistry/ready
-curl -sS http://127.0.0.1:18000/admin/api/info
+curl --fail-with-body \
+  http://127.0.0.1:18000/health
 ```
 
 ## 30 秒调用示例
@@ -159,7 +175,17 @@ curl --fail-with-body \
 ```
 
 也可以通过 `multipart/form-data` 直接上传音频。完整参数、文件上传 curl
-和返回格式见 [`docs/api.md`](docs/api.md#15-对外声纹注册接口)。
+和返回格式见 [对外 API 文档](docs/public-api.md#4-注册或更新声纹)。
+
+### 查询声纹
+
+```bash
+curl --fail-with-body \
+  "http://127.0.0.1:18000/speakers"
+
+curl --fail-with-body \
+  "http://127.0.0.1:18000/speakers/narrator_01"
+```
 
 ### 直接生成音频
 
@@ -178,47 +204,7 @@ curl --fail-with-body \
 ```
 
 同一接口也支持 `tts_style` 内置声音或直接上传 `prompt_audio`。完整参数和
-curl 示例见 [`docs/api.md`](docs/api.md#14-统一-tts-音频接口)。
-
-### 注册自己的 Speaker
-
-安装本地客户端依赖：
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-参考音频建议为 3～10 秒清晰、无背景音乐的单人声。客户端会自动通过
-FFmpeg 转换为 16kHz 单声道。
-
-```bash
-python scripts/client.py register \
-  --speaker-id narrator_female_01 \
-  --audio /path/to/reference.wav \
-  --reference-text "欢迎使用 CosyVoice3Pro 语音服务。" \
-  --prompt "请用成熟、稳重、亲切的语气说话。"
-```
-
-### 使用 Speaker ID 合成
-
-使用注册时保存的默认画像：
-
-```bash
-python scripts/client.py infer \
-  --speaker-id narrator_female_01 \
-  --text "你好，这是默认画像的语音合成。" \
-  --output default.wav
-```
-
-仅本次请求覆盖画像：
-
-```bash
-python scripts/client.py infer \
-  --speaker-id narrator_female_01 \
-  --prompt "请非常开心、兴奋地说话。" \
-  --text "太好了，我们完成了新的服务升级！" \
-  --output happy.wav
-```
+curl 示例见 [对外 API 文档](docs/public-api.md#7-文字转语音)。
 
 Prompt 解析规则：
 
@@ -227,6 +213,14 @@ Prompt 解析规则：
 | 不传 `prompt` | 使用 Speaker 注册时保存的默认画像 |
 | `prompt=""` | 使用 Speaker 注册时保存的默认画像 |
 | 非空 `prompt` | 只覆盖本次请求，不修改默认画像 |
+
+### 删除声纹
+
+```bash
+curl --fail-with-body \
+  -X DELETE \
+  "http://127.0.0.1:18000/speakers/narrator_01"
+```
 
 ## Web 管理后台
 
@@ -288,7 +282,8 @@ CosyVoice3Pro/
 ├── scripts/
 │   └── client.py                      # 注册、查询和推理客户端
 ├── docs/
-│   ├── api.md                         # Triton API 与 curl
+│   ├── public-api.md                  # 对外开发者 API
+│   ├── advanced-api.md                # 内部 Triton 高级 API
 │   └── web-admin.md                   # Gateway 部署与运维
 ├── data/
 │   └── speakers/                      # 本地声纹数据，不提交
@@ -321,6 +316,7 @@ bash manage.sh backup
 
 ## 兼容性
 
+- Web 页面只调用对外 `/health`、`/register`、`/speakers` 和 `/tts/`。
 - 保留上游 `cosyvoice3` Triton 模型，方便旧调用回滚。
 - 保留原始 `reference_wav + reference_text + target_text` 推理。
 - `instruct_text` 仍可作为 `prompt` 的兼容别名。
@@ -350,7 +346,8 @@ Web 管理后台、声纹注册、TTS 与 Triton API 默认不包含应用层登
 
 ## 文档
 
-- [统一 TTS、Speaker Registry 与 Triton 推理 API](docs/api.md)
+- [对外开发者 API](docs/public-api.md)
+- [内部 Triton 高级 API](docs/advanced-api.md)
 - [Web Gateway 部署与运维](docs/web-admin.md)
 
 ## 致谢与上游

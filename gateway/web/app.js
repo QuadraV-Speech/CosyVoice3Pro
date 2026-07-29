@@ -1,8 +1,5 @@
 "use strict";
 
-const SYNTHESIS_MODEL = "CosyVoice3Pro";
-const REGISTRY_MODEL = "CosyVoice3ProSpeakerRegistry";
-
 const state = {
   speakers: [],
   selectedAudioFile: null,
@@ -60,10 +57,6 @@ const elements = {
   toastRegion: document.querySelector("#toast-region"),
 };
 
-function tritonInput(name, shape, datatype, data) {
-  return { name, shape, datatype, data };
-}
-
 async function requestJson(url, options = {}) {
   const response = await fetch(url, options);
   const text = await response.text();
@@ -81,30 +74,6 @@ async function requestJson(url, options = {}) {
     );
   }
   return payload;
-}
-
-async function infer(modelName, inputs) {
-  return requestJson(`/v2/models/${modelName}/infer`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ inputs }),
-  });
-}
-
-function outputsByName(payload) {
-  return Object.fromEntries(
-    (payload.outputs || []).map((item) => [item.name, item.data || []]),
-  );
-}
-
-function registryMessage(payload) {
-  const outputs = outputsByName(payload);
-  const value = (outputs.message || [])[0] || "{}";
-  try {
-    return JSON.parse(value);
-  } catch {
-    return { message: value };
-  }
 }
 
 function setStatus(orb, text, label, ready) {
@@ -166,20 +135,17 @@ async function refreshHealth() {
   let modelReady = false;
 
   try {
-    const info = await requestJson("/admin/api/info");
+    const response = await fetch("/health");
+    const info = await response.json();
     gatewayReady = true;
-    tritonReady = Boolean(info.triton_ready);
+    tritonReady = Boolean(info.tritonReady);
+    modelReady = Boolean(
+      info.models
+      && info.models.ttsReady
+      && info.models.speakerRegistryReady,
+    );
   } catch {
     gatewayReady = false;
-  }
-
-  if (gatewayReady) {
-    try {
-      const response = await fetch(`/v2/models/${SYNTHESIS_MODEL}/ready`);
-      modelReady = response.ok;
-    } catch {
-      modelReady = false;
-    }
   }
 
   setStatus(
@@ -213,11 +179,8 @@ async function refreshHealth() {
 }
 
 async function refreshSpeakers() {
-  const payload = await infer(REGISTRY_MODEL, [
-    tritonInput("operation", [1, 1], "BYTES", ["list"]),
-  ]);
-  const message = registryMessage(payload);
-  state.speakers = Array.isArray(message.speakers) ? message.speakers : [];
+  const payload = await requestJson("/speakers");
+  state.speakers = Array.isArray(payload.speakers) ? payload.speakers : [];
   elements.speakerCount.textContent = String(state.speakers.length);
   renderSpeakerOptions();
   renderSpeakerTable();
@@ -229,14 +192,14 @@ function renderSpeakerOptions() {
     '<option value="">请先注册或选择声纹</option>';
   for (const speaker of state.speakers) {
     const option = document.createElement("option");
-    option.value = speaker.speaker_id;
-    option.textContent = speaker.speaker_id;
+    option.value = speaker.speakerId;
+    option.textContent = speaker.speakerId;
     elements.speakerSelect.append(option);
   }
-  if (state.speakers.some((speaker) => speaker.speaker_id === current)) {
+  if (state.speakers.some((speaker) => speaker.speakerId === current)) {
     elements.speakerSelect.value = current;
   } else if (state.speakers.length === 1) {
-    elements.speakerSelect.value = state.speakers[0].speaker_id;
+    elements.speakerSelect.value = state.speakers[0].speakerId;
   }
   updatePersonaPreview();
 }
@@ -244,7 +207,7 @@ function renderSpeakerOptions() {
 function renderSpeakerTable() {
   const query = elements.speakerSearch.value.trim().toLowerCase();
   const speakers = state.speakers.filter((speaker) =>
-    speaker.speaker_id.toLowerCase().includes(query),
+    speaker.speakerId.toLowerCase().includes(query),
   );
   elements.speakerTableBody.replaceChildren();
   elements.tableEmpty.classList.toggle("is-visible", speakers.length === 0);
@@ -253,23 +216,23 @@ function renderSpeakerTable() {
     const row = document.createElement("tr");
     const prompt = speaker.prompt || "默认中性画像";
     const duration =
-      typeof speaker.duration_seconds === "number"
-        ? `${speaker.duration_seconds.toFixed(2)} 秒`
+      typeof speaker.durationSeconds === "number"
+        ? `${speaker.durationSeconds.toFixed(2)} 秒`
         : "—";
     row.innerHTML = `
       <td>
         <div class="speaker-id-cell">
-          <span class="speaker-avatar">${escapeHtml(speaker.speaker_id.slice(0, 1).toUpperCase())}</span>
+          <span class="speaker-avatar">${escapeHtml(speaker.speakerId.slice(0, 1).toUpperCase())}</span>
           <span>
-            <strong>${escapeHtml(speaker.speaker_id)}</strong>
+            <strong>${escapeHtml(speaker.speakerId)}</strong>
             <small>TTS ready</small>
           </span>
         </div>
       </td>
       <td class="prompt-cell" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</td>
       <td>${escapeHtml(duration)}</td>
-      <td><span class="version-code">${escapeHtml(speaker.speaker_version || "—")}</span></td>
-      <td>${escapeHtml(formatDate(speaker.registered_at))}</td>
+      <td><span class="version-code">${escapeHtml(speaker.speakerVersion || "—")}</span></td>
+      <td>${escapeHtml(formatDate(speaker.registeredAt))}</td>
       <td>
         <div class="row-actions">
           <button class="row-button use-speaker" type="button">使用</button>
@@ -278,12 +241,12 @@ function renderSpeakerTable() {
       </td>
     `;
     row.querySelector(".use-speaker").addEventListener("click", () => {
-      elements.speakerSelect.value = speaker.speaker_id;
+      elements.speakerSelect.value = speaker.speakerId;
       updatePersonaPreview();
       document.querySelector("#studio").scrollIntoView({ behavior: "smooth" });
     });
     row.querySelector(".delete-speaker").addEventListener("click", () =>
-      deleteSpeaker(speaker.speaker_id),
+      deleteSpeaker(speaker.speakerId),
     );
     elements.speakerTableBody.append(row);
   }
@@ -291,7 +254,7 @@ function renderSpeakerTable() {
 
 function updatePersonaPreview() {
   const speaker = state.speakers.find(
-    (item) => item.speaker_id === elements.speakerSelect.value,
+    (item) => item.speakerId === elements.speakerSelect.value,
   );
   if (!speaker) {
     elements.personaPreview.textContent = "选择声纹后显示";
@@ -307,10 +270,9 @@ async function deleteSpeaker(speakerId) {
   );
   if (!confirmed) return;
   try {
-    await infer(REGISTRY_MODEL, [
-      tritonInput("operation", [1, 1], "BYTES", ["delete"]),
-      tritonInput("speaker_id", [1, 1], "BYTES", [speakerId]),
-    ]);
+    await requestJson(`/speakers/${encodeURIComponent(speakerId)}`, {
+      method: "DELETE",
+    });
     toast("声纹已删除", speakerId);
     await refreshSpeakers();
   } catch (error) {
@@ -482,8 +444,8 @@ async function registerSpeaker(event) {
       method: "POST",
       body: formData,
     });
-    const duration = payload.metadata
-      ? payload.metadata.duration_seconds
+    const duration = payload.speaker
+      ? payload.speaker.durationSeconds
       : null;
     toast(
       "声纹注册成功",

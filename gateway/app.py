@@ -1,3 +1,4 @@
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,7 +14,7 @@ from speaker_registration import router as speaker_registration_router
 
 
 SERVICE_NAME = "CosyVoice3Pro Web Gateway"
-SERVICE_VERSION = "1.3.0"
+SERVICE_VERSION = "1.4.0"
 TRITON_UPSTREAM = os.environ.get(
     "COSYVOICE_TRITON_UPSTREAM", "http://127.0.0.1:18100").rstrip("/")
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -70,6 +71,44 @@ def _forward_headers(headers):
     return forwarded
 
 
+async def _upstream_ready(request, path):
+    try:
+        response = await request.app.state.http_client.get(
+            f"{TRITON_UPSTREAM}{path}",
+            timeout=3,
+        )
+        return response.status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
+@app.get("/health")
+async def public_health(request: Request):
+    triton_ready, tts_ready, registry_ready = await asyncio.gather(
+        _upstream_ready(request, "/v2/health/ready"),
+        _upstream_ready(request, "/v2/models/CosyVoice3Pro/ready"),
+        _upstream_ready(
+            request,
+            "/v2/models/CosyVoice3ProSpeakerRegistry/ready",
+        ),
+    )
+    ready = triton_ready and tts_ready and registry_ready
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={
+            "status": "ok" if ready else "unavailable",
+            "service": SERVICE_NAME,
+            "version": SERVICE_VERSION,
+            "gatewayReady": True,
+            "tritonReady": triton_ready,
+            "models": {
+                "ttsReady": tts_ready,
+                "speakerRegistryReady": registry_ready,
+            },
+        },
+    )
+
+
 @app.get("/admin/api/info")
 async def service_info(request: Request):
     ready = False
@@ -87,7 +126,9 @@ async def service_info(request: Request):
         "triton_ready": ready,
         "routes": {
             "web": "/",
+            "health": "/health",
             "register": "/register",
+            "speakers": "/speakers",
             "tts": "/tts/",
             "triton": "/v2/",
             "grpc_port": 18001,
