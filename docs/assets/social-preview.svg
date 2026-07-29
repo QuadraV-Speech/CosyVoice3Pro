@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">CosyVoice3Pro</title>
+  <desc id="desc">Production-ready CosyVoice serving. Register once, speak many times.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111610"/>
+      <stop offset=".58" stop-color="#080b08"/>
+      <stop offset="1" stop-color="#131b0d"/>
+    </linearGradient>
+    <radialGradient id="glow">
+      <stop offset="0" stop-color="#c8f45d" stop-opacity=".24"/>
+      <stop offset="1" stop-color="#c8f45d" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="lime" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ddff8b"/>
+      <stop offset="1" stop-color="#b6ea37"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#20271d" stop-opacity=".94"/>
+      <stop offset="1" stop-color="#11150f" stop-opacity=".9"/>
+    </linearGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" fill="none" stroke="#eff7e8" stroke-opacity=".035"/>
+    </pattern>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#000" flood-opacity=".42"/>
+    </filter>
+    <filter id="softGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="7"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#background)"/>
+  <rect width="1280" height="640" fill="url(#grid)"/>
+  <circle cx="1110" cy="80" r="330" fill="url(#glow)"/>
+  <circle cx="470" cy="710" r="330" fill="url(#glow)" opacity=".25"/>
+
+  <g transform="translate(74 64)">
+    <rect width="54" height="54" rx="16" fill="#c8f45d" fill-opacity=".09" stroke="#c8f45d" stroke-opacity=".38"/>
+    <g fill="#c8f45d">
+      <rect x="13" y="22" width="4" height="11" rx="2"/>
+      <rect x="20" y="15" width="4" height="25" rx="2"/>
+      <rect x="27" y="9" width="4" height="37" rx="2"/>
+      <rect x="34" y="15" width="4" height="25" rx="2"/>
+      <rect x="41" y="22" width="4" height="11" rx="2"/>
+    </g>
+  </g>
+
+  <g font-family="Inter, Segoe UI, Arial, sans-serif">
+    <text x="148" y="86" fill="#f3f7ef" font-size="21" font-weight="700">CosyVoice</text>
+    <text x="148" y="108" fill="#c8f45d" font-size="10" font-weight="800" letter-spacing="4">3 PRO</text>
+
+    <g transform="translate(74 174)">
+      <rect width="213" height="30" rx="15" fill="#c8f45d" fill-opacity=".07" stroke="#c8f45d" stroke-opacity=".18"/>
+      <circle cx="17" cy="15" r="4" fill="#7ae582"/>
+      <text x="31" y="19" fill="#c8f45d" font-size="10" font-weight="800" letter-spacing="1.9">PRODUCTION TTS STACK</text>
+    </g>
+
+    <text x="72" y="282" fill="#f6f9f3" font-size="70" font-weight="780" letter-spacing="-3">CosyVoice3Pro</text>
+    <text x="74" y="342" fill="#c8f45d" font-size="30" font-weight="650">Register once. Speak many times.</text>
+    <text x="74" y="394" fill="#aab4a2" font-size="18">Reusable Speaker Registry · Public HTTP API · Triton</text>
+    <text x="74" y="422" fill="#aab4a2" font-size="18">Prompt personas · Audio post-processing · Web console</text>
+
+    <g transform="translate(74 468)" font-size="12" font-weight="700">
+      <g>
+        <rect width="120" height="40" rx="12" fill="#eff7e8" fill-opacity=".055" stroke="#eff7e8" stroke-opacity=".13"/>
+        <text x="21" y="25" fill="#e2e8dc">NVIDIA TRITON</text>
+      </g>
+      <g transform="translate(132)">
+        <rect width="144" height="40" rx="12" fill="#eff7e8" fill-opacity=".055" stroke="#eff7e8" stroke-opacity=".13"/>
+        <text x="19" y="25" fill="#e2e8dc">TENSORRT-LLM</text>
+      </g>
+      <g transform="translate(288)">
+        <rect width="118" height="40" rx="12" fill="#eff7e8" fill-opacity=".055" stroke="#eff7e8" stroke-opacity=".13"/>
+        <text x="20" y="25" fill="#e2e8dc">DOCKER READY</text>
+      </g>
+    </g>
+
+    <text x="74" y="570" fill="#727c6d" font-size="13" letter-spacing=".5">github.com/QuadraV-Speech/CosyVoice3Pro</text>
+  </g>
+
+  <g transform="translate(808 70)" filter="url(#shadow)">
+    <rect width="398" height="500" rx="30" fill="url(#panel)" stroke="#eff7e8" stroke-opacity=".13"/>
+    <text x="30" y="45" fill="#c8f45d" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="11" font-weight="800" letter-spacing="2">LIVE SERVICE</text>
+    <rect x="298" y="25" width="72" height="28" rx="14" fill="#c8f45d" fill-opacity=".07" stroke="#c8f45d" stroke-opacity=".2"/>
+    <circle cx="315" cy="39" r="4" fill="#7ae582"/>
+    <text x="326" y="43" fill="#dce5d5" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="9">READY</text>
+
+    <g transform="translate(28 76)" font-family="Inter, Segoe UI, Arial, sans-serif">
+      <rect width="342" height="72" rx="15" fill="#070a07" fill-opacity=".5" stroke="#eff7e8" stroke-opacity=".09"/>
+      <rect x="16" y="15" width="42" height="42" rx="12" fill="#c8f45d" fill-opacity=".09" stroke="#c8f45d" stroke-opacity=".22"/>
+      <text x="32" y="41" fill="#c8f45d" font-size="13" font-weight="800">S</text>
+      <text x="74" y="31" fill="#8f9a88" font-size="9" letter-spacing="1.2">SPEAKER REGISTRY</text>
+      <text x="74" y="51" fill="#f1f5ed" font-size="13" font-weight="700">speaker_id → reusable voice</text>
+      <circle cx="321" cy="36" r="5" fill="#7ae582"/>
+    </g>
+
+    <g transform="translate(28 164)">
+      <rect width="342" height="190" rx="20" fill="#090c08" stroke="#eff7e8" stroke-opacity=".1"/>
+      <g stroke="#eff7e8" stroke-opacity=".04">
+        <path d="M0 48H342M0 95H342M0 142H342"/>
+        <path d="M57 0V190M114 0V190M171 0V190M228 0V190M285 0V190"/>
+      </g>
+      <g transform="translate(32 69)" fill="#c8f45d">
+        <rect x="0" y="21" width="4" height="10" rx="2" opacity=".35"/>
+        <rect x="10" y="11" width="4" height="30" rx="2" opacity=".55"/>
+        <rect x="20" y="3" width="4" height="46" rx="2" opacity=".75"/>
+        <rect x="30" y="17" width="4" height="18" rx="2" opacity=".5"/>
+        <rect x="40" y="7" width="4" height="38" rx="2" opacity=".7"/>
+        <rect x="50" y="19" width="4" height="14" rx="2" opacity=".45"/>
+        <rect x="60" y="0" width="4" height="52" rx="2" opacity=".82"/>
+        <rect x="70" y="13" width="4" height="26" rx="2" opacity=".58"/>
+        <rect x="80" y="6" width="4" height="40" rx="2" opacity=".72"/>
+        <rect x="90" y="18" width="4" height="16" rx="2" opacity=".48"/>
+        <rect x="100" y="9" width="4" height="34" rx="2" opacity=".65"/>
+        <rect x="110" y="21" width="4" height="10" rx="2" opacity=".4"/>
+        <rect x="120" y="14" width="4" height="24" rx="2" opacity=".55"/>
+        <rect x="130" y="2" width="4" height="48" rx="2" opacity=".8"/>
+        <rect x="140" y="11" width="4" height="30" rx="2" opacity=".62"/>
+        <rect x="150" y="19" width="4" height="14" rx="2" opacity=".4"/>
+        <rect x="160" y="5" width="4" height="42" rx="2" opacity=".75"/>
+        <rect x="170" y="14" width="4" height="24" rx="2" opacity=".55"/>
+        <rect x="180" y="1" width="4" height="50" rx="2" opacity=".82"/>
+        <rect x="190" y="18" width="4" height="16" rx="2" opacity=".45"/>
+        <rect x="200" y="9" width="4" height="34" rx="2" opacity=".66"/>
+        <rect x="210" y="16" width="4" height="20" rx="2" opacity=".5"/>
+        <rect x="220" y="4" width="4" height="44" rx="2" opacity=".78"/>
+        <rect x="230" y="13" width="4" height="26" rx="2" opacity=".58"/>
+        <rect x="240" y="8" width="4" height="36" rx="2" opacity=".69"/>
+        <rect x="250" y="20" width="4" height="12" rx="2" opacity=".4"/>
+        <rect x="260" y="11" width="4" height="30" rx="2" opacity=".62"/>
+        <rect x="270" y="18" width="4" height="16" rx="2" opacity=".46"/>
+      </g>
+      <circle cx="171" cy="95" r="42" fill="#c8f45d" fill-opacity=".14" filter="url(#softGlow)"/>
+      <circle cx="171" cy="95" r="30" fill="url(#lime)"/>
+      <path d="M166 85L184 95L166 105Z" fill="#172000"/>
+    </g>
+
+    <g transform="translate(28 376)" font-family="Inter, Segoe UI, Arial, sans-serif">
+      <rect width="342" height="50" rx="14" fill="url(#lime)"/>
+      <text x="96" y="31" fill="#172000" font-size="14" font-weight="800">POST /tts/ → WAV</text>
+    </g>
+
+    <g transform="translate(28 446)" font-family="SFMono-Regular, Consolas, monospace" font-size="10">
+      <circle cx="4" cy="5" r="4" fill="#7ae582"/>
+      <text x="16" y="9" fill="#9ca596">RTF 0.148</text>
+      <text x="115" y="9" fill="#9ca596">16 kHz</text>
+      <text x="195" y="9" fill="#9ca596">speakerId</text>
+      <text x="282" y="9" fill="#9ca596">:18000</text>
+    </g>
+  </g>
+</svg>

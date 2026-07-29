@@ -3,6 +3,7 @@ import argparse
 import io
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np

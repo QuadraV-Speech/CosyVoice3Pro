@@ -2,42 +2,56 @@
 
 # CosyVoice3Pro
 
-### Register once. Speak many times.
+### Production-ready CosyVoice serving
+
+**Register once. Speak many times.**
 
 基于 NVIDIA Triton Inference Server 与 TensorRT-LLM 的<br>
-高性能语音克隆服务、Speaker Registry 与 Web 管理后台
+高性能语音克隆服务、可复用 Speaker Registry、开发者友好 API 与 Web 工作台
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![CI](https://github.com/QuadraV-Speech/CosyVoice3Pro/actions/workflows/ci.yml/badge.svg)](https://github.com/QuadraV-Speech/CosyVoice3Pro/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/QuadraV-Speech/CosyVoice3Pro)](https://github.com/QuadraV-Speech/CosyVoice3Pro/releases)
 [![NVIDIA Triton](https://img.shields.io/badge/NVIDIA-Triton-76B900?logo=nvidia&logoColor=white)](https://github.com/triton-inference-server/server)
 [![TensorRT--LLM](https://img.shields.io/badge/TensorRT--LLM-Accelerated-76B900)](https://github.com/NVIDIA/TensorRT-LLM)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![API](https://img.shields.io/badge/HTTP_API-%3A18000-7C3AED)](#api-入口)
+[![A100 RTF](https://img.shields.io/badge/A100_RTF-0.148-C8F45D)](docs/benchmark.md)
 
+[English](README_EN.md) ·
 [快速开始](#快速开始) ·
+[实测性能](#实测性能) ·
 [Web 后台](#web-管理后台) ·
 [对外 API](docs/public-api.md) ·
-[部署运维](docs/web-admin.md)
+[部署运维](docs/web-admin.md) ·
+[参与贡献](#参与贡献)
 
 </div>
 
 ---
 
-CosyVoice3Pro 将提示音频的特征提取从每次推理中解耦出来：参考音频只需
-注册一次，后续请求只传 `speakerId + text` 即可完成语音合成。注册时还可
-保存默认 Prompt 画像，请求中的非空 `prompt` 会仅对本次推理覆盖默认画像。
+> **核心差异：** 将提示音频的特征提取从每次推理中解耦。参考音频只注册
+> 一次，后续请求只传 `speakerId + text`，不再重复上传 Prompt Audio。
 
-开发者通过普通 HTTP 接口即可完成健康检查、声纹注册、查询、删除和 TTS：
-`/health`、`/register`、`/speakers`、`/tts/`。无需构造 Triton Tensor
-JSON。Web 管理后台也完全基于这组对外 API，全部由 `18000` 端口提供。
+注册时可以保存默认 Prompt 画像；推理请求中的非空 `prompt` 仅覆盖本次
+画像。开发者通过普通 HTTP 即可完成健康检查、声纹注册、查询、删除和
+TTS，无需构造 Triton Tensor JSON。Web 工作台和 API 全部由 `18000`
+端口提供。
 
 <div align="center">
-  <img src="docs/assets/web-console.png" alt="CosyVoice3Pro Web 声音工作台" width="100%">
-  <sub>同端口 Web 工作台：声纹管理、画像覆盖、音频后处理、试听与下载</sub>
+  <a href="docs/assets/web-console.png">
+    <img src="docs/assets/web-demo.gif" alt="CosyVoice3Pro Web 声音工作台真实操作演示" width="100%">
+  </a>
+  <sub>真实服务演示：选择 Speaker → 输入画像与文本 → 生成、试听并下载</sub>
 </div>
+
+> [!NOTE]
+> CosyVoice3Pro 是基于上游 CosyVoice 构建的社区部署项目，并非
+> FunAudioLLM 官方发行版。“Pro”指本项目增加的服务化与工程能力。
 
 ## 为什么使用 CosyVoice3Pro
 
-| 能力 | 传统零样本调用 | CosyVoice3Pro |
+| 能力 | 原始 Zero-shot 调用 | CosyVoice3Pro |
 | --- | --- | --- |
 | 提示音频 | 每次请求重复上传 | 注册一次，后续只传 `speaker_id` |
 | 声纹特征 | 每次重复提取 | 持久化并按需加载 |
@@ -46,6 +60,19 @@ JSON。Web 管理后台也完全基于这组对外 API，全部由 `18000` 端�
 | 声音来源 | 接口分散 | 内置声音、Speaker ID、即时提示音频统一入口 |
 | 音频后处理 | 客户端自行完成 | 服务端统一处理语速、音量、分段和编码 |
 | 管理能力 | 需要额外开发 | 内置注册、查询、更新、删除和 Web 后台 |
+
+## 实测性能
+
+端到端测试包含 Web Gateway、Speaker Registry、模型推理、后处理和 WAV
+响应传输，不是只统计模型内部耗时。
+
+| 环境 | 并发 | 成功率 | P50 | P95 | 平均 RTF | 音频吞吐 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A100-SXM4-80GB | 1 | 8/8 | 1.37s | 1.55s | **0.148** | 6.76x |
+| A100-SXM4-80GB | 4 | 8/8 | 1.81s | 2.06s | **0.200** | 18.26x |
+
+测试条件、指标解释和复现命令见
+[性能基准文档](docs/benchmark.md)。不同 GPU、文本和声音的结果会有所差异。
 
 ## 核心能力
 
@@ -130,7 +157,7 @@ Tensor 协议、模型输入和 Registry 内部操作见
 ### 1. 克隆项目
 
 ```bash
-git clone git@github.com:QuadraV-Speech/CosyVoice3Pro.git
+git clone https://github.com/QuadraV-Speech/CosyVoice3Pro.git
 cd CosyVoice3Pro
 ```
 
@@ -285,10 +312,12 @@ CosyVoice3Pro/
 │   ├── CosyVoice3Pro/                 # Speaker ID / Raw Prompt 推理
 │   └── CosyVoice3ProSpeakerRegistry/  # Speaker 注册与持久化
 ├── scripts/
-│   └── client.py                      # 注册、查询和推理客户端
+│   ├── client.py                      # 注册、查询和推理客户端
+│   └── benchmark.py                   # Public API 性能基准工具
 ├── docs/
 │   ├── public-api.md                  # 对外开发者 API
 │   ├── advanced-api.md                # 内部 Triton 高级 API
+│   ├── benchmark.md                   # 实测性能与复现方法
 │   └── web-admin.md                   # Gateway 部署与运维
 ├── data/
 │   └── speakers/                      # 本地声纹数据，不提交
@@ -353,7 +382,14 @@ Web 管理后台、声纹注册、TTS 与 Triton API 默认不包含应用层登
 
 - [对外开发者 API](docs/public-api.md)
 - [内部 Triton 高级 API](docs/advanced-api.md)
+- [性能基准与复现](docs/benchmark.md)
 - [Web Gateway 部署与运维](docs/web-admin.md)
+
+## 参与贡献
+
+欢迎提交 Bug、文档改进、GPU 兼容性结果、Benchmark 数据和 Pull Request。
+提交前请阅读 [贡献指南](CONTRIBUTING.md)。仓库已经提供结构化 Bug/Feature
+模板，界面变化请附截图，性能变化请附可复现命令和前后数据。
 
 ## 致谢与上游
 
