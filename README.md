@@ -30,6 +30,11 @@ CosyVoice3Pro 将提示音频的特征提取从每次推理中解耦出来：参
 `/health`、`/register`、`/speakers`、`/tts/`。无需构造 Triton Tensor
 JSON。Web 管理后台也完全基于这组对外 API，全部由 `18000` 端口提供。
 
+<div align="center">
+  <img src="docs/assets/web-console.png" alt="CosyVoice3Pro Web 声音工作台" width="100%">
+  <sub>同端口 Web 工作台：声纹管理、画像覆盖、音频后处理、试听与下载</sub>
+</div>
+
 ## 为什么使用 CosyVoice3Pro
 
 | 能力 | 传统零样本调用 | CosyVoice3Pro |

@@ -46,15 +46,21 @@
             <strong id="sidebar-status-text">正在连接</strong>
           </span>
         </div>
-        <span class="version">Web Gateway v1.4</span>
+        <span class="version">PUBLIC API · Web Gateway v1.5</span>
       </div>
     </aside>
 
     <main class="main-content">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">VOICE OPERATIONS</p>
+        <div class="topbar-copy">
+          <div class="topbar-kicker">
+            <p class="eyebrow">VOICE OPERATIONS</p>
+            <span class="api-chip"><i></i> PUBLIC API</span>
+          </div>
           <h1>声音工作台</h1>
+          <p class="topbar-description">
+            注册一次，随时合成。统一管理声纹、声音画像与音频输出。
+          </p>
         </div>
         <div class="topbar-actions">
           <button class="button button-ghost" id="refresh-all" type="button">
@@ -68,7 +74,10 @@
 
       <section class="status-strip" id="status" aria-label="服务状态">
         <article class="status-card">
-          <span class="status-orb" id="gateway-orb"></span>
+          <span class="status-visual">
+            <span class="status-glyph">G</span>
+            <span class="status-orb" id="gateway-orb"></span>
+          </span>
           <div>
             <small>WEB GATEWAY</small>
             <strong id="gateway-status">检测中</strong>
@@ -76,7 +85,10 @@
           <span class="status-meta">:18000</span>
         </article>
         <article class="status-card">
-          <span class="status-orb" id="triton-orb"></span>
+          <span class="status-visual">
+            <span class="status-glyph">T</span>
+            <span class="status-orb" id="triton-orb"></span>
+          </span>
           <div>
             <small>TRITON SERVER</small>
             <strong id="triton-status">检测中</strong>
@@ -84,7 +96,10 @@
           <span class="status-meta">HTTP</span>
         </article>
         <article class="status-card">
-          <span class="status-orb" id="model-orb"></span>
+          <span class="status-visual">
+            <span class="status-glyph">≋</span>
+            <span class="status-orb" id="model-orb"></span>
+          </span>
           <div>
             <small>COSYVOICE3PRO</small>
             <strong id="model-status">检测中</strong>
@@ -92,7 +107,10 @@
           <span class="status-meta">MODEL</span>
         </article>
         <article class="status-card">
-          <span class="status-orb is-neutral"></span>
+          <span class="status-visual">
+            <span class="status-glyph">S</span>
+            <span class="status-orb is-neutral"></span>
+          </span>
           <div>
             <small>REGISTERED</small>
             <strong><span id="speaker-count">0</span> 个声纹</strong>
@@ -109,7 +127,7 @@
               <h2>生成一段声音</h2>
               <p>选择声纹并配置画像、语速、音量和输出格式。</p>
             </div>
-            <span class="panel-badge">CosyVoice3Pro</span>
+            <span class="panel-badge">PUBLIC · /tts/</span>
           </div>
 
           <form id="synthesis-form">
@@ -126,36 +144,38 @@
               </div>
             </div>
 
-            <div class="field">
-              <div class="label-row">
-                <label for="request-prompt">本次画像覆盖</label>
-                <span>可选 · 留空使用默认画像</span>
+            <div class="composer-grid">
+              <div class="field">
+                <div class="label-row">
+                  <label for="request-prompt">本次画像覆盖</label>
+                  <span>可选 · 留空使用默认画像</span>
+                </div>
+                <textarea
+                  id="request-prompt"
+                  rows="5"
+                  maxlength="512"
+                  placeholder="例如：请用温柔、舒缓、略带笑意的语气说话。"></textarea>
+                <div class="prompt-presets" aria-label="画像快捷选项">
+                  <button type="button" data-prompt="">默认</button>
+                  <button type="button" data-prompt="请非常开心、兴奋地说话。">开心</button>
+                  <button type="button" data-prompt="请用温柔、舒缓的语气说话。">温柔</button>
+                  <button type="button" data-prompt="请用严肃、专业的语气说话。">专业</button>
+                  <button type="button" data-prompt="请用尽可能快的语速说话。">快速</button>
+                </div>
               </div>
-              <textarea
-                id="request-prompt"
-                rows="3"
-                maxlength="512"
-                placeholder="例如：请用温柔、舒缓、略带笑意的语气说话。"></textarea>
-              <div class="prompt-presets" aria-label="画像快捷选项">
-                <button type="button" data-prompt="">默认</button>
-                <button type="button" data-prompt="请非常开心、兴奋地说话。">开心</button>
-                <button type="button" data-prompt="请用温柔、舒缓的语气说话。">温柔</button>
-                <button type="button" data-prompt="请用严肃、专业的语气说话。">专业</button>
-                <button type="button" data-prompt="请用尽可能快的语速说话。">快速</button>
-              </div>
-            </div>
 
-            <div class="field">
-              <div class="label-row">
-                <label for="target-text">合成文本</label>
-                <span><b id="text-count">0</b> / 1000</span>
+              <div class="field">
+                <div class="label-row">
+                  <label for="target-text">合成文本</label>
+                  <span><b id="text-count">0</b> / 1000</span>
+                </div>
+                <textarea
+                  id="target-text"
+                  rows="5"
+                  maxlength="1000"
+                  required
+                  placeholder="输入需要转换为语音的文本……"></textarea>
               </div>
-              <textarea
-                id="target-text"
-                rows="7"
-                maxlength="1000"
-                required
-                placeholder="输入需要转换为语音的文本……"></textarea>
             </div>
 
             <div class="postprocess-grid" aria-label="音频后处理配置">
@@ -234,6 +254,12 @@
             <span class="play-disc">▶</span>
           </div>
 
+          <div class="output-specs" aria-label="输出规格">
+            <span><i></i> 16 kHz</span>
+            <span><i></i> Mono</span>
+            <span><i></i> Server encoded</span>
+          </div>
+
           <div class="empty-output" id="empty-output">
             <strong>还没有生成音频</strong>
             <p>完成一次合成后，可在这里试听并下载所选格式。</p>
@@ -252,7 +278,7 @@
           </div>
 
           <div class="request-note">
-            <span>API</span>
+            <span>PUBLIC API</span>
             <code>POST /tts/ · Speaker ID + Audio Post-processing</code>
           </div>
         </aside>
@@ -261,9 +287,9 @@
       <section class="panel speakers-panel" id="speakers">
         <div class="panel-heading speakers-heading">
           <div>
-            <p class="section-index">02 / SPEAKER REGISTRY</p>
+            <p class="section-index">02 / PUBLIC SPEAKER API</p>
             <h2>声纹资产</h2>
-            <p>注册一次，后续推理只需要传递 speaker_id。</p>
+            <p>基于 /register 与 /speakers 管理可复用的声音资产。</p>
           </div>
           <div class="table-tools">
             <label class="search-box">

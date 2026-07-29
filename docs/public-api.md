@@ -81,7 +81,7 @@ curl --fail-with-body \
 {
   "status": "ok",
   "service": "CosyVoice3Pro Web Gateway",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "gatewayReady": true,
   "tritonReady": true,
   "models": {
