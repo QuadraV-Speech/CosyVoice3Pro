@@ -30,43 +30,26 @@ with a reusable Speaker Registry, developer-friendly API, and Web console.
 ---
 
 > [!IMPORTANT]
-> **Official CosyVoice3 solves high-quality generation; CosyVoice3Pro solves
-> how to serve it efficiently and reliably to applications.** Pro retains the
-> official model and advanced Triton APIs, then adds a persistent Speaker
-> Registry, developer-friendly REST API, audio delivery, Web console, and
-> A100-oriented concurrency profiles.
+> **CosyVoice3Pro = official CosyVoice3 inference + Speaker Registry +
+> developer API + audio delivery + Web and production operations.**
 
-The most direct improvement is decoupling voice identity from inference:
-register reference audio once, then synthesize with only `speakerId + text`.
-A default Prompt persona can be stored with the speaker, while a non-empty
-request `prompt` overrides it for one request.
+Register reference audio once, then send only `speakerId + text`. A non-empty
+request `prompt` temporarily overrides the speaker's default persona.
 
 ## Official CosyVoice3 vs. CosyVoice3Pro
 
-This comparison targets the
-[official CosyVoice3 Triton Runtime](https://github.com/FunAudioLLM/CosyVoice/blob/074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc/runtime/triton_trtllm/README.Cosyvoice3.md).
-Pro uses the same `Fun-CosyVoice3-0.5B-2512` model and TensorRT-LLM inference
-core. Its advantages are in production serving, not a claim to modify the
-official model.
-
 | Dimension | Official CosyVoice3 Triton Runtime | CosyVoice3Pro |
 | --- | --- | --- |
-| Model and quality | Official CosyVoice3 model | **Inherits the official model unchanged** |
-| Application API | Triton V2 / gRPC Tensors with reference audio and text inputs | **Plain REST, forms, and audio streams; callable with curl** |
-| Voice reuse | Reference audio by default; optional in-process cache without a persistent Speaker entity | **Register once, persist features, then send `speakerId`** |
-| Multi-speaker lifecycle | No application-facing CRUD API | **Register, update, list, inspect, and delete** |
-| Reuse across restarts | In-process cache ends with the service | **Persistent Speaker Registry with on-demand loading** |
-| Prompt persona | Reference text/instructions assembled by each client | **Stored default plus one-request non-empty override** |
-| Registration source | Client prepares audio Tensors | **Uploaded file or public audio URL** |
-| Unified synthesis | Clients organize different inference inputs | **Built-in, Speaker ID, and instant cloning through `/tts/`** |
-| Audio delivery | Model waveform; application handles delivery | **Speed, volume, long-text chunking, and nine formats** |
-| Web management | No same-port application console in the Triton Runtime | **Same-port Web console built only on the Public API** |
-| Concurrency tuning | Instance and KV parameters tuned manually | **GPU-memory-aware `balanced` / `throughput` profiles** |
-| Observability | Native Triton metrics | **Metrics plus health and stage timing headers** |
-| Streaming | Official decoupled streaming | Advanced Triton API retained; Public `/tts/` currently returns complete audio |
+| Model | `Fun-CosyVoice3-0.5B-2512` | **Same official model and TensorRT-LLM core** |
+| API | Triton V2 / gRPC Tensors | **REST, forms, audio streams, curl-ready** |
+| Voices | Reference audio by default; optional in-process cache | **Persistent multi-speaker Registry with CRUD** |
+| Prompt | Client assembles reference text/instructions | **Stored default with request override** |
+| I/O | Client prepares Tensors and processes waveform | **File/URL registration, chunking, speed, volume, nine formats** |
+| Operations | Native Triton capabilities | **Same-port Web, health, timing headers, automatic profiles** |
+| Advanced | Decoupled streaming and Metrics | **Retained; Public `/tts/` currently returns complete audio** |
 
-In short: **CosyVoice3Pro = the official CosyVoice3 inference core + reusable
-voice identity + application API + deliverable audio + production operations.**
+CosyVoice3Pro is a community serving enhancement, not an official FunAudioLLM
+distribution.
 
 <div align="center">
   <a href="docs/assets/web-console.png">
@@ -75,22 +58,14 @@ voice identity + application API + deliverable audio + production operations.**
   <sub>Real service workflow: select a speaker → enter a persona and text → synthesize, preview, and download</sub>
 </div>
 
-> [!NOTE]
-> CosyVoice3Pro is a community deployment project built on top of CosyVoice.
-> It is not an official FunAudioLLM distribution. “Pro” refers to the serving
-> and production-oriented capabilities added by this project.
-
 ## Measured performance
 
-The following end-to-end measurement includes the Web Gateway, Speaker
-Registry lookup, model inference, audio post-processing, and WAV response
-transfer. System RTF follows the upstream aggregate definition:
+System RTF follows the upstream definition:
 `profile wall time / total synthesized audio duration`.
 
-### Official defaults vs. Pro profile
+### Controlled A100 comparison
 
-Same A100, model, engine, application path, text, speaker, post-processing,
-12-way concurrency, 48 requests, and 12 warm-up requests; only the service
+Same hardware, model, engine, application path, and requests; only the service
 profile changes:
 
 | A100-SXM4-80GB configuration | Success | P50 | P95 | System RTF | Audio throughput |
@@ -98,9 +73,25 @@ profile changes:
 | Reproduced upstream default core settings | 48/48 | 3.67s | 4.41s | 0.0391 | 25.61x |
 | **CosyVoice3Pro `throughput`** | **48/48** | **3.40s** | **4.22s** | **0.0329** | **30.42x** |
 
-The Pro profile reduces system RTF by **15.8%** and raises audio throughput by
-**18.8%**. The upstream-default row uses the same Pro Public API to control the
-application path; it is not an officially published FunAudioLLM A100 number.
+System RTF falls **15.8%** and audio throughput rises **18.8%**. The first row
+is a same-path reproduction, not an officially published A100 number.
+
+### Official L20 baseline
+
+From the
+[official CosyVoice3 Triton documentation](https://github.com/FunAudioLLM/CosyVoice/blob/074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc/runtime/triton_trtllm/README.Cosyvoice3.md):
+
+| Official mode | Concurrency / Batch | Published result |
+| --- | ---: | --- |
+| Streaming first chunk | Concurrency 4 | Avg 750.42 ms; P50 740.31; P90 941.05; P95 977.55; P99 1002.37 |
+| Offline pipeline | Batch 1 | RTF 0.1091 |
+| Offline pipeline | Batch 2 | RTF 0.0822 |
+| Offline pipeline | Batch 4 | RTF 0.0630 |
+| Offline pipeline | Batch 8 | RTF 0.0562 |
+| Offline pipeline | Batch 16 | RTF 0.0501 |
+
+Upstream publishes no A100 result. The L20 streaming/offline workloads are not
+directly comparable with Pro's end-to-end A100 HTTP benchmark.
 
 ### Pro concurrency scaling
 
@@ -110,24 +101,7 @@ application path; it is not an officially published FunAudioLLM A100 number.
 | A100-SXM4-80GB | 16 | 48/48 | 4.41s | 5.42s | **0.0322** | 31.06x |
 | A100-SXM4-80GB | 24 | 48/48 | 6.72s | 8.18s | **0.0331** | 30.19x |
 
-See the [benchmark methodology and reproduction command](docs/benchmark.md).
-It includes a variable-controlled A100 reproduction of the upstream default
-configuration and the officially published L20 baseline. Upstream currently
-publishes no A100 performance result. Results vary with GPU, text, voice, and
-deployment configuration.
-
-## Features
-
-- Persistent Speaker Registry with register, inspect, list, update, and delete.
-- Reusable prompt speech tokens, mel features, and CAMPPlus speaker embedding.
-- Default speaker persona with per-request instruction override.
-- Public HTTP API using regular JSON, forms, and audio streams.
-- One `/tts/` endpoint for built-in voices, registered speakers, and raw prompt
-  audio.
-- Speaker registration from an uploaded audio file or a public audio URL.
-- Long-text chunking, speed and volume control, and nine output formats.
-- Web console for speaker management, synthesis, preview, and download.
-- Triton `/v2/*`, gRPC, and Prometheus metrics retained for advanced use.
+See the full [benchmark methodology and reproduction command](docs/benchmark.md).
 
 ## Architecture
 
@@ -160,15 +134,8 @@ engineering and platform operations.
 
 ## Quick start
 
-### Requirements
-
-- Linux
-- Docker
-- NVIDIA Driver and NVIDIA Container Runtime
-- CUDA-capable NVIDIA GPU
-- Network access for the initial image, source, and model downloads
-
-### Install
+Requires Linux, Docker, NVIDIA Driver, NVIDIA Container Runtime, and a CUDA
+GPU. Initial installation downloads source, images, and models.
 
 ```bash
 git clone https://github.com/QuadraV-Speech/CosyVoice3Pro.git
@@ -176,24 +143,11 @@ cd CosyVoice3Pro
 COSYVOICE_GPU_ID=0 bash manage.sh install
 ```
 
-The installer creates the container, prepares CosyVoice and the TensorRT-LLM
-engine, deploys the CosyVoice3Pro models and Speaker Registry, installs audio
-encoding dependencies, and starts the same-port Web Gateway.
-
-### Start and verify
-
 ```bash
-bash manage.sh start
-
-curl --fail-with-body \
-  http://127.0.0.1:18000/health
+curl --fail-with-body http://127.0.0.1:18000/health
 ```
 
-Open the Web console at:
-
-```text
-http://SERVER_IP:18000/
-```
+Web console: `http://SERVER_IP:18000/`
 
 ## Public API
 
@@ -206,9 +160,6 @@ http://SERVER_IP:18000/
 | `DELETE` | `/speakers/{speakerId}` | Delete one speaker |
 | `POST` | `/tts/` | Synthesize and return processed audio |
 | `GET` | `/` | Web console |
-
-The complete parameter and response reference is available in the
-[Public API documentation](docs/public-api.md).
 
 ### Register from an audio URL
 
@@ -224,7 +175,7 @@ curl --fail-with-body \
   }'
 ```
 
-Audio file upload is also supported through `multipart/form-data`.
+Audio upload through `multipart/form-data` is also supported.
 
 ### Synthesize with a registered speaker
 
@@ -248,31 +199,8 @@ Prompt resolution:
 | `prompt=""` | Use the speaker's stored default persona |
 | Non-empty `prompt` | Override the persona for this request only |
 
-## Advanced APIs
-
-| Endpoint | Purpose |
-| --- | --- |
-| `http://HOST:18000/v2/` | Triton HTTP API |
-| `HOST:18001` | Triton gRPC |
-| `http://HOST:18002/metrics` | Prometheus metrics |
-
-See the [Advanced API documentation](docs/advanced-api.md) for Tensor
-contracts, raw prompt inference, and internal Registry operations.
-
-## Benchmark your deployment
-
-```bash
-python3 scripts/benchmark.py \
-  --url http://127.0.0.1:18000 \
-  --speaker-id common_speaker_1 \
-  --concurrency 12 16 24 \
-  --requests 48 \
-  --warmup 12
-```
-
-The tool reports upstream-compatible system RTF, Average/P50/P90/P95/P99
-full-response latency, and audio throughput using real WAV responses from the
-Public API.
+See the full [Public API documentation](docs/public-api.md) for file upload,
+built-in voices, raw prompt audio, speaker deletion, and all parameters.
 
 ## Operations
 
@@ -285,34 +213,18 @@ bash manage.sh logs
 bash manage.sh backup
 ```
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `COSYVOICE_GPU_ID` | `3` | Host GPU assigned to Docker |
-| `COSYVOICE_GIT_PROXY` | Current proxy or empty | Proxy used to fetch upstream code |
-| `COSYVOICE_SPEAKER_STORE_DIR` | `data/speakers` | Persistent speaker storage |
-| `COSYVOICE_WEB_GATEWAY_ENABLED` | `true` | Enable the same-port Web Gateway |
-| `COSYVOICE_PERFORMANCE_PROFILE` | `auto` | Select `balanced` or `throughput` from GPU memory |
-| `COSYVOICE_KV_CACHE_FRACTION` | Profile default | TensorRT-LLM KV-cache memory fraction |
-| `COSYVOICE_PRO_BLS_INSTANCES` | Profile default | CosyVoice3Pro orchestration instances |
-| `COSYVOICE_TOKEN2WAV_INSTANCES` | Profile default | Acoustic-model instances |
-| `COSYVOICE_VOCODER_INSTANCES` | Profile default | Vocoder instances |
-| `COSYVOICE_TTS_INFERENCE_CONCURRENCY` | Profile default | Gateway-wide inference limit |
-| `COSYVOICE_TTS_SEGMENT_CONCURRENCY` | `2` | Per-request long-text segment limit |
-| `COSYVOICE_PRO_EAGER_CUDA_INIT` | Profile default | Warm Pro CUDA contexts before readiness |
+Speakers default to `data/speakers/`; `bash manage.sh backup` creates a manual
+backup. See [operations](docs/web-admin.md) for profiles and environment
+variables.
 
-On an 80 GB GPU, `auto` enables the dual-token2wav, dual-vocoder throughput
-profile. Smaller GPUs retain conservative single instances. Restart after
-changing a performance variable. See the
-[benchmark and tuning guide](docs/benchmark.md) for the exact profiles and A/B
-results.
+Advanced interfaces remain available: Triton HTTP `/v2/*`, gRPC `18001`, and
+Metrics `18002`.
 
 ## Security
 
-The Web console, speaker registration, TTS, and Triton APIs do not include
-application-level authentication by default. A production deployment should
-add TLS, authentication and authorization, source-IP restrictions, request
-size limits, rate limits, and independent Speaker Registry backups at the
-reverse-proxy or load-balancer layer.
+No application-level authentication is enabled by default. Public deployments
+should add TLS, authentication, rate limits, source restrictions, and separate
+Speaker Registry backups.
 
 ## Contributing
 

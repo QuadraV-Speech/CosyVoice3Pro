@@ -32,40 +32,25 @@
 ---
 
 > [!IMPORTANT]
-> **官方 CosyVoice3 解决“高质量生成”，CosyVoice3Pro 解决“如何把它稳定、
-> 高效地提供给业务”。** Pro 完整保留官方模型与 Triton 高级接口，并增加
-> 可持久化 Speaker Registry、开发者友好 REST API、音频后处理、Web 工作台
-> 和面向 A100 的并发 Profile。
+> **CosyVoice3Pro = 官方 CosyVoice3 推理核心 + Speaker Registry +
+> 开发者 API + 音频交付 + Web 与生产运维。**
 
-最直接的变化是声纹与推理解耦：参考音频注册一次，后续请求只传
-`speakerId + text`。注册时还可以保存默认 Prompt 画像；单次请求传入非空
-`prompt` 即可临时覆盖，无需重复上传音频或在每个客户端拼装 Tensor。
+参考音频注册一次，后续只传 `speakerId + text`；非空 `prompt` 可临时覆盖
+Speaker 的默认画像。
 
 ## 官方 CosyVoice3 与 CosyVoice3Pro
 
-以下对比针对
-[官方 CosyVoice3 Triton Runtime](https://github.com/FunAudioLLM/CosyVoice/blob/074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc/runtime/triton_trtllm/README.Cosyvoice3.md)。
-Pro 使用相同的 `Fun-CosyVoice3-0.5B-2512` 模型与 TensorRT-LLM
-推理核心，优势集中在生产服务层，而不是声称修改了官方模型能力。
-
 | 维度 | 官方 CosyVoice3 Triton Runtime | CosyVoice3Pro |
 | --- | --- | --- |
-| 模型与音质 | 官方 CosyVoice3 模型 | **完全继承官方模型** |
-| 业务调用 | Triton V2 / gRPC Tensor，需要组织参考音频与文本输入 | **普通 REST、表单和音频流；curl 即可调用** |
-| 声纹复用 | 默认携带参考音频；可选进程内缓存，但没有持久化 Speaker 实体 | **注册一次，持久化特征，后续只传 `speakerId`** |
-| 多 Speaker 管理 | 没有面向业务的查增删 API | **注册、更新、列表、详情、删除完整闭环** |
-| 跨重启复用 | 进程内缓存随服务结束 | **Speaker Registry 持久化并按需加载** |
-| Prompt 画像 | 客户端随请求组织参考文本/指令 | **注册默认画像，非空请求 Prompt 单次覆盖** |
-| 注册来源 | 客户端准备音频 Tensor | **上传文件或公开音频 URL** |
-| 统一 TTS | 不同推理方式由客户端组织 | **内置声音、Speaker ID、即时克隆统一 `/tts/`** |
-| 音频交付 | 返回模型波形，业务自行处理 | **语速、音量、长文本分段及 9 种输出格式** |
-| Web 管理 | Triton Runtime 不含同端口业务后台 | **18000 同端口 Web 工作台，且只调用 Public API** |
-| 并发调优 | 手工调整实例与 KV 参数 | **按 GPU 显存自动选择 `balanced` / `throughput`** |
-| 可观测性 | Triton 原生指标 | **保留 Metrics，并增加健康检查与分阶段耗时响应头** |
-| 流式能力 | 官方 decoupled streaming | 高级 Triton 接口保留；Public `/tts/` 当前返回完整音频 |
+| 模型 | `Fun-CosyVoice3-0.5B-2512` | **相同官方模型与 TensorRT-LLM 核心** |
+| 调用 | Triton V2 / gRPC Tensor | **REST、表单、音频流，curl 即用** |
+| 声纹 | 默认传参考音频；可选进程内缓存 | **持久化多 Speaker，完整 CRUD** |
+| Prompt | 客户端组织参考文本/指令 | **注册默认画像，请求级覆盖** |
+| 输入与输出 | 客户端准备 Tensor、处理波形 | **文件/URL 注册，长文本、语速、音量、9 种格式** |
+| 管理与运维 | Triton 原生能力 | **同端口 Web、健康检查、耗时头、自动性能 Profile** |
+| 高级能力 | decoupled streaming、Metrics | **原样保留；Public `/tts/` 当前返回完整音频** |
 
-一句话概括：**CosyVoice3Pro = 官方 CosyVoice3 推理核心 + 可复用声纹层 +
-面向开发者的 API + 可直接交付的音频 + 生产运维能力。**
+CosyVoice3Pro 是社区服务化增强版，并非 FunAudioLLM 官方发行版。
 
 <div align="center">
   <a href="docs/assets/web-console.png">
@@ -74,29 +59,38 @@ Pro 使用相同的 `Fun-CosyVoice3-0.5B-2512` 模型与 TensorRT-LLM
   <sub>真实服务演示：选择 Speaker → 输入画像与文本 → 生成、试听并下载</sub>
 </div>
 
-> [!NOTE]
-> CosyVoice3Pro 是基于上游 CosyVoice 构建的社区部署项目，并非
-> FunAudioLLM 官方发行版。“Pro”指本项目增加的服务化与工程能力。
-
 ## 实测性能
 
-端到端测试包含 Web Gateway、Speaker Registry、模型推理、后处理和 WAV
-响应传输，不是只统计模型内部耗时。系统 RTF 使用官方聚合口径：
-`整组墙钟时间 / 全部输出音频总时长`。
+系统 RTF 与官方口径一致：`整组墙钟时间 / 全部输出音频总时长`。
 
-### 官方默认配置与 Pro Profile
+### A100 受控对比
 
-同一台 A100、同一模型与 Engine、同一业务链路、文本、Speaker、后处理、
-12 并发、48 个请求和 12 次预热，仅改变服务 Profile：
+同一硬件、模型、Engine、业务链路和请求，仅改变服务 Profile：
 
 | A100-SXM4-80GB 配置 | 成功率 | P50 | P95 | 系统 RTF | 音频吞吐 |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | 官方默认核心参数复现 | 48/48 | 3.67s | 4.41s | 0.0391 | 25.61x |
 | **CosyVoice3Pro `throughput`** | **48/48** | **3.40s** | **4.22s** | **0.0329** | **30.42x** |
 
-Pro Profile 的系统 RTF 降低 **15.8%**，音频吞吐提升 **18.8%**。
-这里的“官方默认核心参数复现”仍使用相同 Pro Public API，以严格控制业务
-链路；它不是 FunAudioLLM 发布的 A100 官方数字。
+系统 RTF 降低 **15.8%**，音频吞吐提升 **18.8%**。第一行是同链路复现，
+不是官方发布的 A100 数字。
+
+### 官方 L20 基线
+
+来自
+[官方 CosyVoice3 Triton 文档](https://github.com/FunAudioLLM/CosyVoice/blob/074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc/runtime/triton_trtllm/README.Cosyvoice3.md)：
+
+| 官方模式 | 并发 / Batch | 官方结果 |
+| --- | ---: | --- |
+| 流式首包 | 并发 4 | Avg 750.42 ms；P50 740.31；P90 941.05；P95 977.55；P99 1002.37 |
+| 离线流水线 | Batch 1 | RTF 0.1091 |
+| 离线流水线 | Batch 2 | RTF 0.0822 |
+| 离线流水线 | Batch 4 | RTF 0.0630 |
+| 离线流水线 | Batch 8 | RTF 0.0562 |
+| 离线流水线 | Batch 16 | RTF 0.0501 |
+
+官方未发布 A100 结果；L20 流式/离线工作负载与 Pro 的 A100 端到端 HTTP
+测试不同，不直接比较倍数。
 
 ### Pro 高并发扩展
 
@@ -106,24 +100,7 @@ Pro Profile 的系统 RTF 降低 **15.8%**，音频吞吐提升 **18.8%**。
 | A100-SXM4-80GB | 16 | 48/48 | 4.41s | 5.42s | **0.0322** | 31.06x |
 | A100-SXM4-80GB | 24 | 48/48 | 6.72s | 8.18s | **0.0331** | 30.19x |
 
-测试条件、指标解释和复现命令见
-[性能基准文档](docs/benchmark.md)。其中包含变量受控的上游默认配置 A100
-复测，以及官方发布的 L20 基线；上游目前没有发布 A100 性能数字。不同
-GPU、文本和声音的结果会有所差异。
-
-## 核心能力
-
-- **Speaker Registry**：注册、查询、列出、更新和删除说话人。
-- **声纹解耦**：持久化 Prompt Speech Tokens、Mel 特征和 Speaker
-  Embedding。
-- **Prompt 画像**：注册默认画像，并支持单次请求覆盖。
-- **开发者友好 API**：普通 JSON、表单和音频流，无需了解 Tensor 协议。
-- **声纹查增删**：注册/更新、列表、单个查询和删除接口完整覆盖。
-- **统一 TTS API**：支持内置声音、注册声纹和即时克隆。
-- **双来源注册**：支持上传音频文件和公开音频 URL。
-- **音频后处理**：支持长文本分段、语速、音量以及九种输出格式。
-- **Web 管理后台**：上传参考音频、管理 Speaker、配置后处理、试听和下载。
-- **高级接口保留**：平台和模型工程可继续使用 Triton `/v2/*`。
+完整变量、口径和复现命令见[性能基准文档](docs/benchmark.md)。
 
 ## 系统架构
 
@@ -153,83 +130,37 @@ GPU、文本和声音的结果会有所差异。
 `18100` 仅供容器内部 Gateway 访问。业务开发优先使用 Public API；模型
 调试和平台运维才需要 Advanced API。
 
-## API 入口
-
-### 对外 API
+## Public API
 
 | 方法 | 地址 | 用途 |
 | --- | --- | --- |
-| `GET` | `http://HOST:18000/health` | 服务健康检查 |
-| `POST` | `http://HOST:18000/register` | 上传音频或 URL 注册/更新声纹 |
-| `GET` | `http://HOST:18000/speakers` | 查询全部声纹 |
-| `GET` | `http://HOST:18000/speakers/{speakerId}` | 查询单个声纹 |
-| `DELETE` | `http://HOST:18000/speakers/{speakerId}` | 删除声纹 |
-| `POST` | `http://HOST:18000/tts/` | 生成处理后的音频 |
-| `GET` | `http://HOST:18000/` | Web 管理后台 |
-
-完整参数、响应和 curl 见
-[对外 API 文档](docs/public-api.md)。
-
-### 内部高级 API
-
-| 地址 | 用途 |
-| --- | --- |
-| `http://HOST:18000/v2/` | Triton HTTP API |
-| `HOST:18001` | Triton gRPC |
-| `http://HOST:18002/metrics` | Prometheus Metrics |
-
-Tensor 协议、模型输入和 Registry 内部操作见
-[内部高级 API 文档](docs/advanced-api.md)。
+| `GET` | `/health` | 健康检查 |
+| `POST` | `/register` | 文件或 URL 注册/更新声纹 |
+| `GET` | `/speakers`、`/speakers/{speakerId}` | 查询声纹 |
+| `DELETE` | `/speakers/{speakerId}` | 删除声纹 |
+| `POST` | `/tts/` | 合成并返回处理后的音频 |
+| `GET` | `/` | Web 工作台 |
 
 ## 快速开始
 
-### 环境要求
-
-- Linux
-- Docker
-- NVIDIA Driver 与 NVIDIA Container Runtime
-- 支持 CUDA 的 NVIDIA GPU
-- 首次安装时可访问 GitHub、镜像源和模型下载源
-
-### 1. 克隆项目
+要求 Linux、Docker、NVIDIA Driver、NVIDIA Container Runtime 与 CUDA
+GPU。首次安装需要下载源码、镜像和模型。
 
 ```bash
 git clone https://github.com/QuadraV-Speech/CosyVoice3Pro.git
 cd CosyVoice3Pro
-```
-
-### 2. 首次安装
-
-通过 `COSYVOICE_GPU_ID` 指定宿主机 GPU：
-
-```bash
 COSYVOICE_GPU_ID=0 bash manage.sh install
 ```
 
-安装过程会：
-
-1. 创建 `cosyvoice-server` 容器；
-2. 准备上游 CosyVoice 与 TensorRT-LLM Engine；
-3. 部署 CosyVoice3Pro 和 Speaker Registry 模型；
-4. 安装音频编码依赖；
-5. 部署同端口 Web Gateway。
-
-### 3. 启动服务
-
 ```bash
-bash manage.sh start
+curl --fail-with-body http://127.0.0.1:18000/health
 ```
 
-### 4. 检查状态
+Web 工作台：`http://服务器IP:18000/`
 
-```bash
-curl --fail-with-body \
-  http://127.0.0.1:18000/health
-```
+## 调用示例
 
-## 30 秒调用示例
-
-### 使用音频 URL 注册声纹
+### 注册声纹
 
 ```bash
 curl --fail-with-body \
@@ -243,22 +174,9 @@ curl --fail-with-body \
   }'
 ```
 
-也可以通过 `multipart/form-data` 直接上传音频。完整参数、文件上传 curl
-和返回格式见 [对外 API 文档](docs/public-api.md#4-注册或更新声纹)。
+也支持 `multipart/form-data` 文件上传。
 
-### 查询声纹
-
-```bash
-curl --fail-with-body \
-  "http://127.0.0.1:18000/speakers"
-
-curl --fail-with-body \
-  "http://127.0.0.1:18000/speakers/narrator_01"
-```
-
-### 直接生成音频
-
-`/tts/` 可以使用已注册 Speaker，并直接返回处理后的音频：
+### 合成音频
 
 ```bash
 curl --fail-with-body \
@@ -272,95 +190,9 @@ curl --fail-with-body \
   --output output.mp3
 ```
 
-同一接口也支持 `tts_style` 内置声音或直接上传 `prompt_audio`。完整参数和
-curl 示例见 [对外 API 文档](docs/public-api.md#7-文字转语音)。
-
-Prompt 解析规则：
-
-| 推理请求 | 实际行为 |
-| --- | --- |
-| 不传 `prompt` | 使用 Speaker 注册时保存的默认画像 |
-| `prompt=""` | 使用 Speaker 注册时保存的默认画像 |
-| 非空 `prompt` | 只覆盖本次请求，不修改默认画像 |
-
-### 删除声纹
-
-```bash
-curl --fail-with-body \
-  -X DELETE \
-  "http://127.0.0.1:18000/speakers/narrator_01"
-```
-
-## Web 管理后台
-
-服务启动后访问：
-
-```text
-http://服务器IP:18000/
-```
-
-管理后台支持：
-
-- Speaker 列表、搜索和状态检查
-- WAV、MP3、M4A 等参考音频上传
-- 本地音频或公开音频 URL 注册
-- 参考音频文本与默认 Prompt 画像配置
-- Speaker 注册、更新和删除
-- 默认画像与单次覆盖画像推理
-- 语速、音量、输出格式和长文本分段配置
-- 处理后音频的在线试听和下载
-
-详细说明见 [`docs/web-admin.md`](docs/web-admin.md)。
-
-## Speaker 数据
-
-注册时会一次性提取并持久化：
-
-```text
-Prompt Speech Tokens
-Prompt Mel Features
-CAMPPlus Speaker Embedding
-Reference Transcript
-Default Prompt Persona
-```
-
-默认宿主机存储目录：
-
-```text
-data/speakers/
-```
-
-该目录已从 Git 中排除。手动备份：
-
-```bash
-bash manage.sh backup
-```
-
-## 项目结构
-
-```text
-CosyVoice3Pro/
-├── gateway/
-│   ├── app.py                         # Web Gateway 与 Triton 反向代理
-│   ├── legacy_tts.py                  # 统一 TTS 与音频后处理
-│   ├── speaker_registration.py        # 文件/URL 声纹注册 API
-│   └── web/                           # Web 管理后台
-├── models/
-│   ├── CosyVoice3Pro/                 # Speaker ID / Raw Prompt 推理
-│   └── CosyVoice3ProSpeakerRegistry/  # Speaker 注册与持久化
-├── scripts/
-│   ├── client.py                      # 注册、查询和推理客户端
-│   └── benchmark.py                   # Public API 性能基准工具
-├── docs/
-│   ├── public-api.md                  # 对外开发者 API
-│   ├── advanced-api.md                # 内部 Triton 高级 API
-│   ├── benchmark.md                   # 实测性能与复现方法
-│   └── web-admin.md                   # Gateway 部署与运维
-├── data/
-│   └── speakers/                      # 本地声纹数据，不提交
-├── manage.sh                          # 安装、启停、状态和备份
-└── requirements.txt
-```
+不传或传空 `prompt` 使用 Speaker 默认画像；非空值仅覆盖本次请求。
+`/tts/` 也支持内置声音和直接上传 `prompt_audio`。更多 curl 见
+[对外 API 文档](docs/public-api.md)。
 
 ## 服务管理
 
@@ -373,59 +205,15 @@ bash manage.sh logs
 bash manage.sh backup
 ```
 
-常用环境变量：
+Speaker 默认保存在 `data/speakers/`；`bash manage.sh backup` 可手动备份。
+性能 Profile、环境变量和高级运维见[部署文档](docs/web-admin.md)。
 
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `COSYVOICE_GPU_ID` | `3` | Docker 使用的宿主机 GPU 编号 |
-| `COSYVOICE_GIT_PROXY` | 当前代理或空 | 拉取上游仓库时使用的代理 |
-| `COSYVOICE_SPEAKER_STORE_DIR` | `data/speakers` | Speaker 持久化目录 |
-| `COSYVOICE_WEB_GATEWAY_ENABLED` | `true` | 是否启用同端口 Gateway |
-| `COSYVOICE_PERFORMANCE_PROFILE` | `auto` | 自动按显存选择 `balanced` 或 `throughput` |
-| `COSYVOICE_KV_CACHE_FRACTION` | Profile 决定 | TensorRT-LLM KV Cache 显存比例 |
-| `COSYVOICE_PRO_BLS_INSTANCES` | Profile 决定 | CosyVoice3Pro 编排实例数 |
-| `COSYVOICE_TOKEN2WAV_INSTANCES` | Profile 决定 | 声学模型实例数 |
-| `COSYVOICE_VOCODER_INSTANCES` | Profile 决定 | 声码器实例数 |
-| `COSYVOICE_TTS_INFERENCE_CONCURRENCY` | Profile 决定 | Gateway 全局推理并发上限 |
-| `COSYVOICE_TTS_SEGMENT_CONCURRENCY` | `2` | 单个长文本可同时占用的分段槽数 |
-| `COSYVOICE_PRO_EAGER_CUDA_INIT` | Profile 决定 | Ready 前预热 Pro 实例 CUDA 上下文 |
-
-如果 Git 代理仅监听宿主机 `127.0.0.1`，管理脚本会通过 Docker 网关建立
-临时转发。
-
-`auto` 在 80GB GPU 上启用双 `token2wav`、双 `vocoder` 的吞吐配置，
-其他 GPU 保持单实例保守配置。修改性能参数后执行 `bash manage.sh restart`
-生效；配置细节和 A/B 数据见[性能基准文档](docs/benchmark.md)。
-
-## 兼容性
-
-- Web 页面只调用对外 `/health`、`/register`、`/speakers` 和 `/tts/`。
-- 保留上游 `cosyvoice3` Triton 模型，方便旧调用回滚。
-- 保留原始 `reference_wav + reference_text + target_text` 推理。
-- `instruct_text` 仍可作为 `prompt` 的兼容别名。
-- 旧版 `tts_style` 请求可以继续调用 `/tts/`。
-- 暂时关闭 Gateway 时，Triton 可直接监听外部 `18000`：
-
-```bash
-COSYVOICE_WEB_GATEWAY_ENABLED=false bash manage.sh restart
-```
-
-恢复 Gateway：
-
-```bash
-bash manage.sh restart
-```
+高级接口继续保留：Triton HTTP `/v2/*`、gRPC `18001`、Metrics `18002`。
 
 ## 安全提示
 
-Web 管理后台、声纹注册、TTS 与 Triton API 默认不包含应用层登录认证。
-部署到生产环境时，建议在外层负载均衡、反向代理或防火墙中配置：
-
-- TLS
-- 身份认证与访问控制
-- 来源 IP 限制
-- 请求体大小和速率限制
-- Speaker 数据目录的独立备份
+服务默认不含应用层认证。公网部署请在反向代理或负载均衡层增加 TLS、
+鉴权、限流、来源限制，并独立备份 Speaker 数据。
 
 ## 文档
 
