@@ -12,7 +12,7 @@ Gateway、Speaker Registry 读取、CosyVoice3Pro 推理、音频后处理与 WA
 | NVIDIA Driver | 550.127.08 |
 | Triton 镜像 | `soar97/triton-cosyvoice:25.06` |
 | 上游 CosyVoice commit | `074ca6d` |
-| Gateway | CosyVoice3Pro Web Gateway `1.6.0` |
+| Gateway | CosyVoice3Pro Web Gateway `1.6.1` |
 | 模式 | 已注册 Speaker、WAV、16 kHz、单声道 |
 | Profile | `throughput`：Pro BLS 12、token2wav 2、vocoder 2 |
 | 测试日期 | 2026-07-29 |
@@ -22,6 +22,22 @@ Gateway、Speaker Registry 读取、CosyVoice3Pro 推理、音频后处理与 WA
 ```text
 你好，欢迎使用 CosyVoice3Pro。注册一次声纹，后续请求只需要传入说话人编号和需要合成的文本。
 ```
+
+## 与官方一致的统计口径
+
+主指标采用上游
+[`client_grpc.py`](https://github.com/FunAudioLLM/CosyVoice/blob/074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc/runtime/triton_trtllm/client_grpc.py#L792-L807)
+的聚合算法：
+
+- `系统 RTF = 整组测试墙钟时间 / 全部输出音频总时长`，越低越好。
+- `音频吞吐 = 1 / 系统 RTF`，表示每秒墙钟时间生成多少秒音频。
+- Average、P50、P90、P95、P99 是从发出 HTTP 请求到完整 WAV
+  响应接收完成的端到端延迟。
+
+JSON 结果中的 `request_rtf_average` 是逐请求
+`请求延迟 / 该请求音频时长` 的平均值；`rtf_average` 是为旧报告消费者保留
+的同义字段。它们会随并发排队上升，不能代替官方口径的系统 RTF，因此不再放入
+主结果表。
 
 ## 性能 Profile
 
@@ -34,36 +50,53 @@ Gateway、Speaker Registry 读取、CosyVoice3Pro 推理、音频后处理与 WA
 | `throughput` | 0.50 | 12 | 2 | 2 | 2 | 12 | 2 | 是 |
 
 双 `token2wav` 但单 `vocoder` 只会把队列从声学模型转移到声码器，因此
-throughput profile 同时扩展两个阶段。模型生成步数、采样参数和音频后处理
+`throughput` Profile 同时扩展两个阶段。模型生成步数、采样参数和音频后处理
 保持不变。
 
-## 优化前后 A/B
+## A100 受控 A/B
 
-两组都使用相同 A100、文本、Speaker、24 个请求和 12 并发。由于语音
-Token 采样具有随机性，输出音频时长会小幅波动；应结合延迟、RTF、QPS
-和音频吞吐判断。
+这是“上游默认核心参数”和 CosyVoice3Pro `throughput` Profile 在同一台
+A100 上的复测。它用于隔离本项目配置优化带来的变化，不冒充 FunAudioLLM
+发布的 A100 结果。
 
-| 配置 | 成功/请求 | P50 | P95 | 平均 RTF | 音频吞吐 | QPS |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 优化前 | 24/24 | 3.58s | 4.35s | 0.350 | 28.25x | 2.91 |
-| `throughput` | 24/24 | **3.17s** | **3.89s** | **0.336** | **29.80x** | **3.15** |
+| 变量 | 两组固定值 |
+| --- | --- |
+| GPU / Driver | A100-SXM4-80GB / 550.127.08 |
+| 镜像 / 上游代码 | `25.06` / `074ca6d` |
+| 模型 | `Fun-CosyVoice3-0.5B-2512`，同一份 TensorRT engine |
+| API / 推理模式 | `/tts/`，完整响应、非流式 |
+| Speaker / Prompt | `common_speaker_1` / 空 |
+| 文本 | 本页顶部固定测试文本 |
+| 后处理 | `balanced` 语速、`middle` 音量、WAV、16 kHz、单声道 |
+| 请求 | 12 并发、48 个请求、正式测量前 12 个预热请求 |
 
-在这组测试中，P50 降低 11.5%，P95 降低 10.7%，QPS 提升 8.1%，
-音频吞吐提升 5.5%。
+| 变化项 | 上游默认核心参数复现 | `throughput` |
+| --- | ---: | ---: |
+| LLM KV fraction | 0.40 | 0.50 |
+| Pro BLS | 10 | 12 |
+| token2wav / vocoder | 1 / 1 | 2 / 2 |
+| Gateway 全局推理并发 | 10 | 12 |
+| CUDA 上下文预热 | 否 | 是 |
 
-Triton 指标同时显示，单 token2wav 基线的累计排队时间为 12.51 秒。
-扩展 token2wav 后必须同步扩展 vocoder，否则队列会转移到 vocoder；
-最终双流水线配置在同轮 74 个 Pro 请求中，token2wav 和 vocoder 的
-失败、取消和拒绝计数均为 0。
+| 配置 | 成功/请求 | 系统 RTF | Average | P50 | P90 | P95 | P99 | 音频吞吐 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 上游默认核心参数复现 | 48/48 | 0.0391 | 3.64s | 3.67s | 4.03s | 4.41s | 5.63s | 25.61x |
+| `throughput` | 48/48 | **0.0329** | **3.36s** | **3.40s** | **3.80s** | **4.22s** | **4.44s** | **30.42x** |
+
+在这组受控测试中，系统 RTF 降低 15.8%，音频吞吐提升 18.8%，P50
+降低 7.2%，P95 降低 4.2%。语音 Token 采样具有随机性，输出音频时长
+仍会小幅波动；系统 RTF 已按实际音频总时长归一化，单次测量仍应结合多轮
+结果判断。
 
 ## 高并发压力测试
 
 每组 48 个请求：
 
-| 并发 | 成功/请求 | P50 | P95 | 平均 RTF | 音频吞吐 | QPS |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 16 | 48/48 | 4.19s | 5.72s | 0.427 | 31.36x | 3.18 |
-| 24 | 48/48 | 6.13s | 7.38s | 0.593 | 31.61x | 3.35 |
+| 并发任务 | 成功/请求 | 系统 RTF | Average | P50 | P90 | P95 | P99 | 音频吞吐 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 12 | 48/48 | **0.0329** | 3.36s | 3.40s | 3.80s | 4.22s | 4.44s | 30.42x |
+| 16 | 48/48 | **0.0322** | 4.29s | 4.41s | 5.17s | 5.42s | 5.88s | 31.06x |
+| 24 | 48/48 | **0.0331** | 6.15s | 6.72s | 7.84s | 8.18s | 9.47s | 30.19x |
 
 24 并发时吞吐已经接近平台，延迟会继续上升。在线低延迟业务建议客户端
 并发控制在 12～16；批量离线任务可以提高到 24。
@@ -72,10 +105,31 @@ Triton 指标同时显示，单 token2wav 基线的累计排队时间为 12.51 �
 成功，P50 1.48 秒、最大 1.96 秒；长请求 5.49 秒完成。单个长请求不会
 再占满所有全局推理槽。
 
-- `RTF = 请求耗时 / 输出音频时长`，越低越好。
-- `音频吞吐 = 全部输出音频总时长 / 整组测试墙钟时间`，越高越好。
-- 这是指定软硬件环境的一次端到端测量，不代表所有 GPU、文本和声音都能得到
-  相同结果。
+这是指定软硬件环境的一次端到端测量，不代表所有 GPU、文本和声音都能得到
+相同结果。
+
+## 官方发布基线与 A100 边界
+
+截至上游 commit `074ca6d`，FunAudioLLM 的
+[CosyVoice3 Triton 文档](https://github.com/FunAudioLLM/CosyVoice/blob/074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc/runtime/triton_trtllm/README.Cosyvoice3.md#benchmark-with-client-server-mode)
+只发布了**单卡 L20** 结果，没有发布 A100 结果：
+
+| 官方硬件 / 模式 | 并发或 Batch | 官方结果 |
+| --- | ---: | --- |
+| L20，流式首包 | 并发 4 | Average 750.42 ms；P50 740.31 ms；P95 977.55 ms；P99 1002.37 ms |
+| L20，离线流水线 | Batch 1 | RTF 0.1091 |
+| L20，离线流水线 | Batch 2 | RTF 0.0822 |
+| L20，离线流水线 | Batch 4 | RTF 0.0630 |
+| L20，离线流水线 | Batch 8 | RTF 0.0562 |
+| L20，离线流水线 | Batch 16 | RTF 0.0501 |
+
+本页的“上游默认核心参数复现”就是补充的 A100 同机基线：它使用上游
+[`run_cosyvoice3.sh`](https://github.com/FunAudioLLM/CosyVoice/blob/074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc/runtime/triton_trtllm/run_cosyvoice3.sh)
+中的 KV 0.4、BLS 10、单 token2wav/单 vocoder 核心配置，但保留
+CosyVoice3Pro Public API、Speaker Registry 和完整 WAV 响应，以便与优化组
+严格控制接口和业务链路。官方 L20 的流式首包、离线批处理与本项目 A100
+端到端 HTTP 并发不是同一工作负载，只能作为上游参考，不能据此宣称硬件或
+软件倍数提升。
 
 ## 复现
 
@@ -87,7 +141,7 @@ python3 scripts/benchmark.py \
   --speaker-id common_speaker_1 \
   --concurrency 12 16 24 \
   --requests 48 \
-  --warmup 2
+  --warmup 12
 ```
 
 自定义测试：
@@ -102,7 +156,31 @@ python3 scripts/benchmark.py \
 ```
 
 Benchmark 工具会读取服务实际返回的 WAV 数据长度计算音频时长，并兼容
-流式 WAV 中未知 `data` chunk 长度的情况。
+流式 WAV 中未知 `data` chunk 长度的情况。JSON 报告内会记录官方统计口径
+名称、来源链接和公式。
+
+复现上游默认核心参数 A100 基线：
+
+```bash
+COSYVOICE_PERFORMANCE_PROFILE=balanced \
+COSYVOICE_KV_CACHE_FRACTION=0.4 \
+COSYVOICE_PRO_BLS_INSTANCES=10 \
+COSYVOICE_TOKEN2WAV_INSTANCES=1 \
+COSYVOICE_VOCODER_INSTANCES=1 \
+COSYVOICE_TTS_INFERENCE_CONCURRENCY=10 \
+COSYVOICE_PRO_EAGER_CUDA_INIT=false \
+  bash manage.sh restart
+
+python3 scripts/benchmark.py \
+  --url http://127.0.0.1:18000 \
+  --speaker-id common_speaker_1 \
+  --concurrency 12 \
+  --requests 48 \
+  --warmup 12
+
+# 恢复 auto；80 GB GPU 会回到 throughput
+bash manage.sh restart
+```
 
 ## 切换与微调
 
@@ -113,7 +191,7 @@ COSYVOICE_PERFORMANCE_PROFILE=balanced \
   bash manage.sh restart
 ```
 
-80GB GPU 吞吐配置：
+80 GB GPU 吞吐配置：
 
 ```bash
 COSYVOICE_PERFORMANCE_PROFILE=throughput \
@@ -140,7 +218,7 @@ COSYVOICE_TTS_SEGMENT_CONCURRENCY=2 \
 - `COSYVOICE_TTS_SEGMENT_CONCURRENCY`
 - `COSYVOICE_PRO_EAGER_CUDA_INIT`
 
-实例数会显著影响显存。小于 80GB 的 GPU 应先使用 `balanced`，每次只增加
+实例数会显著影响显存。小于 80 GB 的 GPU 应先使用 `balanced`，每次只增加
 一个实例并观察 `nvidia-smi`、`nv_inference_queue_duration_us` 和失败
 计数。
 

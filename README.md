@@ -17,7 +17,7 @@
 [![TensorRT--LLM](https://img.shields.io/badge/TensorRT--LLM-Accelerated-76B900)](https://github.com/NVIDIA/TensorRT-LLM)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![API](https://img.shields.io/badge/HTTP_API-%3A18000-7C3AED)](#api-入口)
-[![A100 RTF](https://img.shields.io/badge/A100_RTF-0.148-C8F45D)](docs/benchmark.md)
+[![A100 system RTF](https://img.shields.io/badge/A100_system_RTF-0.0322-C8F45D)](docs/benchmark.md)
 
 [English](README_EN.md) ·
 [快速开始](#快速开始) ·
@@ -65,16 +65,19 @@ TTS，无需构造 Triton Tensor JSON。Web 工作台和 API 全部由 `18000`
 ## 实测性能
 
 端到端测试包含 Web Gateway、Speaker Registry、模型推理、后处理和 WAV
-响应传输，不是只统计模型内部耗时。
+响应传输，不是只统计模型内部耗时。系统 RTF 使用官方聚合口径：
+`整组墙钟时间 / 全部输出音频总时长`。
 
-| 环境 | 并发 | 成功率 | P50 | P95 | 平均 RTF | 音频吞吐 |
+| 环境 | 并发 | 成功率 | P50 | P95 | 系统 RTF | 音频吞吐 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| A100-SXM4-80GB | 12 | 24/24 | 3.17s | 3.89s | **0.336** | 29.80x |
-| A100-SXM4-80GB | 16 | 48/48 | 4.19s | 5.72s | **0.427** | 31.36x |
-| A100-SXM4-80GB | 24 | 48/48 | 6.13s | 7.38s | **0.593** | 31.61x |
+| A100-SXM4-80GB | 12 | 48/48 | 3.40s | 4.22s | **0.0329** | 30.42x |
+| A100-SXM4-80GB | 16 | 48/48 | 4.41s | 5.42s | **0.0322** | 31.06x |
+| A100-SXM4-80GB | 24 | 48/48 | 6.72s | 8.18s | **0.0331** | 30.19x |
 
 测试条件、指标解释和复现命令见
-[性能基准文档](docs/benchmark.md)。不同 GPU、文本和声音的结果会有所差异。
+[性能基准文档](docs/benchmark.md)。其中包含变量受控的上游默认配置 A100
+复测，以及官方发布的 L20 基线；上游目前没有发布 A100 性能数字。不同
+GPU、文本和声音的结果会有所差异。
 
 ## 核心能力
 

@@ -14,7 +14,7 @@ from speaker_registration import router as speaker_registration_router
 
 
 SERVICE_NAME = "CosyVoice3Pro Web Gateway"
-SERVICE_VERSION = "1.6.0"
+SERVICE_VERSION = "1.6.1"
 TRITON_UPSTREAM = os.environ.get(
     "COSYVOICE_TRITON_UPSTREAM", "http://127.0.0.1:18100").rstrip("/")
 WEB_DIR = Path(__file__).resolve().parent / "web"

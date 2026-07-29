@@ -143,7 +143,7 @@
 
     <g transform="translate(28 446)" font-family="SFMono-Regular, Consolas, monospace" font-size="10">
       <circle cx="4" cy="5" r="4" fill="#7ae582"/>
-      <text x="16" y="9" fill="#9ca596">RTF 0.148</text>
+      <text x="16" y="9" fill="#9ca596">SYS RTF 0.0322</text>
       <text x="115" y="9" fill="#9ca596">16 kHz</text>
       <text x="195" y="9" fill="#9ca596">speakerId</text>
       <text x="282" y="9" fill="#9ca596">:18000</text>

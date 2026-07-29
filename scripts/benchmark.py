@@ -18,6 +18,11 @@ DEFAULT_TEXT = (
     "你好，欢迎使用 CosyVoice3Pro。注册一次声纹，"
     "后续请求只需要传入说话人编号和需要合成的文本。"
 )
+OFFICIAL_BENCHMARK_SOURCE = (
+    "https://github.com/FunAudioLLM/CosyVoice/blob/"
+    "074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc/"
+    "runtime/triton_trtllm/client_grpc.py"
+)
 
 
 def percentile(values, percent):
@@ -85,6 +90,53 @@ def synthesize(args):
     }
 
 
+def summarize_results(
+    results,
+    errors,
+    concurrency,
+    request_count,
+    wall_seconds,
+):
+    if not results:
+        raise RuntimeError(
+            f"all requests failed at concurrency {concurrency}: "
+            + "; ".join(errors[:3])
+        )
+
+    latencies = [item["latency_seconds"] for item in results]
+    audio_durations = [item["audio_seconds"] for item in results]
+    request_rtfs = [item["rtf"] for item in results]
+    total_audio_seconds = sum(audio_durations)
+    system_rtf = wall_seconds / total_audio_seconds
+    return {
+        "concurrency": concurrency,
+        "requests": request_count,
+        "successful": len(results),
+        "failed": len(errors),
+        "latency_min_seconds": min(latencies),
+        "latency_average_seconds": statistics.mean(latencies),
+        "latency_p50_seconds": percentile(latencies, 50),
+        "latency_p90_seconds": percentile(latencies, 90),
+        "latency_p95_seconds": percentile(latencies, 95),
+        "latency_p99_seconds": percentile(latencies, 99),
+        "latency_max_seconds": max(latencies),
+        "audio_average_seconds": statistics.mean(audio_durations),
+        "total_audio_seconds": total_audio_seconds,
+        "system_rtf": system_rtf,
+        "request_rtf_average": statistics.mean(request_rtfs),
+        # Retained for consumers of reports generated before v1.6.1. This is
+        # per-request RTF, not the official aggregate/system RTF.
+        "rtf_average": statistics.mean(request_rtfs),
+        "audio_throughput_x": 1 / system_rtf,
+        "requests_per_second": len(results) / wall_seconds,
+        "wall_seconds": wall_seconds,
+        "response_average_bytes": round(
+            statistics.mean(item["bytes"] for item in results)
+        ),
+        "errors": errors,
+    }
+
+
 def benchmark_profile(args, concurrency):
     started_at = time.perf_counter()
     results = []
@@ -101,44 +153,34 @@ def benchmark_profile(args, concurrency):
                 errors.append(str(exc))
     wall_seconds = time.perf_counter() - started_at
 
-    if not results:
-        raise RuntimeError(
-            f"all requests failed at concurrency {concurrency}: "
-            + "; ".join(errors[:3])
-        )
-
-    latencies = [item["latency_seconds"] for item in results]
-    audio_durations = [item["audio_seconds"] for item in results]
-    rtfs = [item["rtf"] for item in results]
-    return {
-        "concurrency": concurrency,
-        "requests": args.requests,
-        "successful": len(results),
-        "failed": len(errors),
-        "latency_p50_seconds": percentile(latencies, 50),
-        "latency_p95_seconds": percentile(latencies, 95),
-        "audio_average_seconds": statistics.mean(audio_durations),
-        "rtf_average": statistics.mean(rtfs),
-        "audio_throughput_x": sum(audio_durations) / wall_seconds,
-        "requests_per_second": len(results) / wall_seconds,
-        "wall_seconds": wall_seconds,
-        "response_average_bytes": round(
-            statistics.mean(item["bytes"] for item in results)
-        ),
-        "errors": errors,
-    }
+    return summarize_results(
+        results,
+        errors,
+        concurrency,
+        args.requests,
+        wall_seconds,
+    )
 
 
 def markdown_report(report):
-    print("| 并发 | 成功/请求 | P50 延迟 | P95 延迟 | 平均音频 | 平均 RTF | 音频吞吐 | QPS |")
-    print("| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+    print(
+        "| 并发任务 | 成功/请求 | 系统 RTF | Average (ms) | "
+        "P50 (ms) | P90 (ms) | P95 (ms) | P99 (ms) | 音频吞吐 |"
+    )
+    print(
+        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+    )
     for item in report["profiles"]:
         print(
-            "| {concurrency} | {successful}/{requests} | "
-            "{latency_p50_seconds:.2f}s | {latency_p95_seconds:.2f}s | "
-            "{audio_average_seconds:.2f}s | {rtf_average:.3f} | "
-            "{audio_throughput_x:.2f}x | {requests_per_second:.2f} |".format(
-                **item
+            "| {concurrency} | {successful}/{requests} | {system_rtf:.4f} | "
+            "{average:.2f} | {p50:.2f} | {p90:.2f} | {p95:.2f} | "
+            "{p99:.2f} | {audio_throughput_x:.2f}x |".format(
+                average=item["latency_average_seconds"] * 1000,
+                p50=item["latency_p50_seconds"] * 1000,
+                p90=item["latency_p90_seconds"] * 1000,
+                p95=item["latency_p95_seconds"] * 1000,
+                p99=item["latency_p99_seconds"] * 1000,
+                **item,
             )
         )
 
@@ -202,6 +244,12 @@ def main():
         "speaker_id": args.speaker_id,
         "text": args.text,
         "warmup_requests": args.warmup,
+        "metric_standard": {
+            "name": "FunAudioLLM CosyVoice Triton benchmark",
+            "source": OFFICIAL_BENCHMARK_SOURCE,
+            "system_rtf": "wall_seconds / total_audio_seconds",
+            "latency": "complete HTTP response latency",
+        },
         "profiles": [
             benchmark_profile(args, concurrency)
             for concurrency in args.concurrency

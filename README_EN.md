@@ -17,7 +17,7 @@ with a reusable Speaker Registry, developer-friendly API, and Web console.
 [![TensorRT--LLM](https://img.shields.io/badge/TensorRT--LLM-Accelerated-76B900)](https://github.com/NVIDIA/TensorRT-LLM)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![HTTP API](https://img.shields.io/badge/HTTP_API-%3A18000-7C3AED)](#public-api)
-[![A100 RTF](https://img.shields.io/badge/A100_RTF-0.148-C8F45D)](docs/benchmark.md)
+[![A100 system RTF](https://img.shields.io/badge/A100_system_RTF-0.0322-C8F45D)](docs/benchmark.md)
 
 [中文](README.md) ·
 [Quick Start](#quick-start) ·
@@ -66,16 +66,20 @@ plain HTTP APIs without requiring clients to build Triton Tensor JSON.
 
 The following end-to-end measurement includes the Web Gateway, Speaker
 Registry lookup, model inference, audio post-processing, and WAV response
-transfer.
+transfer. System RTF follows the upstream aggregate definition:
+`profile wall time / total synthesized audio duration`.
 
-| GPU | Concurrency | Success | P50 | P95 | Average RTF | Audio throughput |
+| GPU | Concurrency | Success | P50 | P95 | System RTF | Audio throughput |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| A100-SXM4-80GB | 12 | 24/24 | 3.17s | 3.89s | **0.336** | 29.80x |
-| A100-SXM4-80GB | 16 | 48/48 | 4.19s | 5.72s | **0.427** | 31.36x |
-| A100-SXM4-80GB | 24 | 48/48 | 6.13s | 7.38s | **0.593** | 31.61x |
+| A100-SXM4-80GB | 12 | 48/48 | 3.40s | 4.22s | **0.0329** | 30.42x |
+| A100-SXM4-80GB | 16 | 48/48 | 4.41s | 5.42s | **0.0322** | 31.06x |
+| A100-SXM4-80GB | 24 | 48/48 | 6.72s | 8.18s | **0.0331** | 30.19x |
 
 See the [benchmark methodology and reproduction command](docs/benchmark.md).
-Results vary with GPU, text, voice, and deployment configuration.
+It includes a variable-controlled A100 reproduction of the upstream default
+configuration and the officially published L20 baseline. Upstream currently
+publishes no A100 performance result. Results vary with GPU, text, voice, and
+deployment configuration.
 
 ## Features
 
@@ -226,13 +230,14 @@ contracts, raw prompt inference, and internal Registry operations.
 python3 scripts/benchmark.py \
   --url http://127.0.0.1:18000 \
   --speaker-id common_speaker_1 \
-  --concurrency 1 4 \
-  --requests 8 \
-  --warmup 1
+  --concurrency 12 16 24 \
+  --requests 48 \
+  --warmup 12
 ```
 
-The tool reports P50/P95 latency, audio duration, RTF, audio throughput, and
-QPS using real WAV responses from the Public API.
+The tool reports upstream-compatible system RTF, Average/P50/P90/P95/P99
+full-response latency, and audio throughput using real WAV responses from the
+Public API.
 
 ## Operations
 

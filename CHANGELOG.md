@@ -2,6 +2,25 @@
 
 All notable project changes are documented here.
 
+## [1.6.1] - 2026-07-29
+
+### Added
+
+- Average, P50, P90, P95, and P99 full-response latency statistics.
+- Variable-controlled A100 reproduction of the upstream default core
+  configuration.
+- Official single-L20 streaming and offline reference results, with explicit
+  workload and hardware comparability boundaries.
+
+### Changed
+
+- Benchmark system RTF now follows the upstream aggregate formula: profile
+  wall time divided by total synthesized audio duration.
+- README performance tables now report system RTF instead of average
+  per-request RTF.
+- JSON reports identify the metric standard and retain legacy per-request RTF
+  fields only for compatibility and diagnostics.
+
 ## [1.6.0] - 2026-07-29
 
 ### Added
@@ -52,6 +71,7 @@ All notable project changes are documented here.
 - Per-speaker default Prompt persona and per-request override.
 - Server-side speed, volume, chunking, and audio-format post-processing.
 
+[1.6.1]: https://github.com/QuadraV-Speech/CosyVoice3Pro/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/QuadraV-Speech/CosyVoice3Pro/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/QuadraV-Speech/CosyVoice3Pro/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/QuadraV-Speech/CosyVoice3Pro/releases/tag/v1.5.0
