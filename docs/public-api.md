@@ -81,7 +81,7 @@ curl --fail-with-body \
 {
   "status": "ok",
   "service": "CosyVoice3Pro Web Gateway",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "gatewayReady": true,
   "tritonReady": true,
   "models": {
@@ -364,6 +364,9 @@ X-CosyVoice-Mode: tts_style | speaker_id | prompt_audio
 X-CosyVoice-Speaker: 实际 Speaker ID 或 raw_prompt
 X-CosyVoice-Prompt-Override: true | false
 X-CosyVoice-Segments: 长文本分段数量
+X-CosyVoice-Inference-Ms: Triton 推理阶段耗时（毫秒）
+X-CosyVoice-Encode-Ms: 音频后处理和编码耗时（毫秒）
+Server-Timing: inference、encode 与 total 分阶段耗时
 ```
 
 建议始终使用 curl 的 `--output` 保存响应。

@@ -84,9 +84,18 @@ class TritonPythonModel:
             1, int(model_params.get("speaker_cache_max_entries", "64")))
         os.makedirs(self.speaker_store_dir, exist_ok=True)
         self.speaker_cache = OrderedDict()
+        self.eager_cuda_init = (
+            model_params.get("eager_cuda_init", "false").lower() == "true")
+        if self.eager_cuda_init:
+            # Without this, every Python backend instance creates its CUDA
+            # context during the first concurrent burst after a restart.
+            self._cuda_warmup_tensor = torch.empty(
+                1, device=self.device, dtype=torch.float16)
+            torch.cuda.synchronize(self.device)
         self.logger.log_info(
             f"CosyVoice3 speaker store={self.speaker_store_dir}, "
-            f"cache_max_entries={self.speaker_cache_max_entries}")
+            f"cache_max_entries={self.speaker_cache_max_entries}, "
+            f"eager_cuda_init={self.eager_cuda_init}")
 
     def _convert_speech_tokens_to_str(self, speech_tokens):
         """Convert speech token IDs tensor/list to string like '<|s_N|>'."""

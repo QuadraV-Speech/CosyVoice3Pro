@@ -2,6 +2,26 @@
 
 All notable project changes are documented here.
 
+## [1.6.0] - 2026-07-29
+
+### Added
+
+- GPU-memory-aware `balanced` and `throughput` performance profiles.
+- Configurable BLS, token2wav, vocoder, Gateway, and long-text segment
+  concurrency.
+- `Server-Timing`, inference-time, and encode-time response headers.
+- 16- and 24-concurrency A100 stress-test results.
+
+### Changed
+
+- 80 GB GPUs now use two token2wav and two vocoder instances while reducing
+  oversized LLM KV-cache reservation.
+- Throughput-profile Pro instances initialize CUDA before Triton reports ready,
+  avoiding first-burst context creation.
+- Long text can no longer consume every global inference slot from one
+  request.
+- Legacy BLS instances are reduced to reserve resources for the Public API.
+
 ## [1.5.1] - 2026-07-29
 
 ### Added
@@ -32,5 +52,6 @@ All notable project changes are documented here.
 - Per-speaker default Prompt persona and per-request override.
 - Server-side speed, volume, chunking, and audio-format post-processing.
 
+[1.6.0]: https://github.com/QuadraV-Speech/CosyVoice3Pro/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/QuadraV-Speech/CosyVoice3Pro/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/QuadraV-Speech/CosyVoice3Pro/releases/tag/v1.5.0

@@ -69,8 +69,9 @@ TTS，无需构造 Triton Tensor JSON。Web 工作台和 API 全部由 `18000`
 
 | 环境 | 并发 | 成功率 | P50 | P95 | 平均 RTF | 音频吞吐 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| A100-SXM4-80GB | 1 | 8/8 | 1.37s | 1.55s | **0.148** | 6.76x |
-| A100-SXM4-80GB | 4 | 8/8 | 1.81s | 2.06s | **0.200** | 18.26x |
+| A100-SXM4-80GB | 12 | 24/24 | 3.17s | 3.89s | **0.336** | 29.80x |
+| A100-SXM4-80GB | 16 | 48/48 | 4.19s | 5.72s | **0.427** | 31.36x |
+| A100-SXM4-80GB | 24 | 48/48 | 6.13s | 7.38s | **0.593** | 31.61x |
 
 测试条件、指标解释和复现命令见
 [性能基准文档](docs/benchmark.md)。不同 GPU、文本和声音的结果会有所差异。
@@ -345,9 +346,21 @@ bash manage.sh backup
 | `COSYVOICE_GIT_PROXY` | 当前代理或空 | 拉取上游仓库时使用的代理 |
 | `COSYVOICE_SPEAKER_STORE_DIR` | `data/speakers` | Speaker 持久化目录 |
 | `COSYVOICE_WEB_GATEWAY_ENABLED` | `true` | 是否启用同端口 Gateway |
+| `COSYVOICE_PERFORMANCE_PROFILE` | `auto` | 自动按显存选择 `balanced` 或 `throughput` |
+| `COSYVOICE_KV_CACHE_FRACTION` | Profile 决定 | TensorRT-LLM KV Cache 显存比例 |
+| `COSYVOICE_PRO_BLS_INSTANCES` | Profile 决定 | CosyVoice3Pro 编排实例数 |
+| `COSYVOICE_TOKEN2WAV_INSTANCES` | Profile 决定 | 声学模型实例数 |
+| `COSYVOICE_VOCODER_INSTANCES` | Profile 决定 | 声码器实例数 |
+| `COSYVOICE_TTS_INFERENCE_CONCURRENCY` | Profile 决定 | Gateway 全局推理并发上限 |
+| `COSYVOICE_TTS_SEGMENT_CONCURRENCY` | `2` | 单个长文本可同时占用的分段槽数 |
+| `COSYVOICE_PRO_EAGER_CUDA_INIT` | Profile 决定 | Ready 前预热 Pro 实例 CUDA 上下文 |
 
 如果 Git 代理仅监听宿主机 `127.0.0.1`，管理脚本会通过 Docker 网关建立
 临时转发。
+
+`auto` 在 80GB GPU 上启用双 `token2wav`、双 `vocoder` 的吞吐配置，
+其他 GPU 保持单实例保守配置。修改性能参数后执行 `bash manage.sh restart`
+生效；配置细节和 A/B 数据见[性能基准文档](docs/benchmark.md)。
 
 ## 兼容性
 

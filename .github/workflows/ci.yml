@@ -29,6 +29,7 @@ jobs:
             gateway/app.py \
             gateway/legacy_tts.py \
             gateway/speaker_registration.py \
+            gateway/tts_utils.py \
             scripts/client.py \
             scripts/benchmark.py
 

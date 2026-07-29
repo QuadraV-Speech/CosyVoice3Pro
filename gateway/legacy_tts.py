@@ -4,6 +4,7 @@ import logging
 import re
 import shutil
 import subprocess
+import time
 from email.parser import BytesParser
 from email.policy import default as email_policy
 from typing import Dict, Tuple
@@ -14,6 +15,11 @@ import httpx
 import numpy as np
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
+
+try:
+    from .tts_utils import positive_env, split_text
+except ImportError:
+    from tts_utils import positive_env, split_text
 
 
 router = APIRouter(tags=["legacy-tts"])
@@ -26,7 +32,10 @@ MIN_PROMPT_SECONDS = 0.5
 MAX_PROMPT_SECONDS = 30
 MAX_PROMPT_LENGTH = 512
 MAX_FORM_BYTES = 32 * 1024 * 1024
-INFERENCE_CONCURRENCY = 10
+INFERENCE_CONCURRENCY = positive_env(
+    "COSYVOICE_TTS_INFERENCE_CONCURRENCY", 10)
+SEGMENT_CONCURRENCY = positive_env(
+    "COSYVOICE_TTS_SEGMENT_CONCURRENCY", 2)
 
 TTS_STYLES = {
     1: "common_speaker_1",
@@ -59,7 +68,6 @@ MEDIA_TYPES = {
     "webm": "audio/webm",
 }
 
-_PUNCTUATION_PARTS = re.compile(r".+?[。！？!?；;，,：:.]+|.+$", re.DOTALL)
 _SPEAKER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 _inference_semaphore = asyncio.Semaphore(INFERENCE_CONCURRENCY)
 
@@ -244,41 +252,6 @@ def _speaker_id_field(fields):
     return speaker_id
 
 
-def _split_text(text: str, max_chars: int):
-    text = text.strip()
-    if not text:
-        return []
-
-    segments = []
-    buffer = ""
-
-    def append_hard_split(value):
-        for index in range(0, len(value), max_chars):
-            segment = value[index:index + max_chars].rstrip("，,").strip()
-            if segment:
-                segments.append(segment)
-
-    for part in _PUNCTUATION_PARTS.findall(text):
-        part = part.strip()
-        if not part:
-            continue
-        if len(part) > max_chars:
-            if buffer:
-                segments.append(buffer.rstrip("，,"))
-                buffer = ""
-            append_hard_split(part)
-        elif len(buffer) + len(part) <= max_chars:
-            buffer += part
-        else:
-            if buffer:
-                segments.append(buffer.rstrip("，,"))
-            buffer = part
-
-    if buffer:
-        segments.append(buffer.rstrip("，,"))
-    return segments
-
-
 async def _infer_segment(
     request: Request,
     text: str,
@@ -457,6 +430,7 @@ def _encode_audio(waveform, speed, volume, output_format):
 
 @router.post("/tts/")
 async def legacy_tts(request: Request):
+    request_started_at = time.perf_counter()
     fields, files = await _read_form_data(request)
     text = fields.get("text", "").strip()
     if not text:
@@ -519,7 +493,7 @@ async def legacy_tts(request: Request):
         resolved_speaker = speaker_id
         mode = "tts_style"
 
-    segments = _split_text(text, max_chars)
+    segments = split_text(text, max_chars)
     if not segments:
         raise HTTPException(status_code=400, detail="text 不能为空")
 
@@ -538,18 +512,30 @@ async def legacy_tts(request: Request):
     )
 
     request_group_id = uuid4().hex
+    segment_semaphore = asyncio.Semaphore(
+        min(SEGMENT_CONCURRENCY, len(segments)))
+
+    async def infer_segment(index, segment):
+        # A large text request must not occupy every global inference slot.
+        # Keeping this limit per request improves fairness and P95 latency when
+        # several clients synthesize segmented text concurrently.
+        async with segment_semaphore:
+            return await _infer_segment(
+                request=request,
+                text=segment,
+                request_id=f"{request_group_id}-{index}",
+                prompt=prompt,
+                speaker_id=speaker_id,
+                reference_samples=reference_samples,
+                reference_text=reference_text,
+            )
+
+    inference_started_at = time.perf_counter()
     waveforms = await asyncio.gather(*[
-        _infer_segment(
-            request=request,
-            text=segment,
-            request_id=f"{request_group_id}-{index}",
-            prompt=prompt,
-            speaker_id=speaker_id,
-            reference_samples=reference_samples,
-            reference_text=reference_text,
-        )
+        infer_segment(index, segment)
         for index, segment in enumerate(segments)
     ])
+    inference_finished_at = time.perf_counter()
     waveform = np.concatenate(waveforms)
 
     try:
@@ -563,6 +549,12 @@ async def legacy_tts(request: Request):
     except RuntimeError as exc:
         logger.exception("legacy tts audio encoding failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    request_finished_at = time.perf_counter()
+
+    inference_ms = (
+        inference_finished_at - inference_started_at) * 1000
+    encode_ms = (request_finished_at - inference_finished_at) * 1000
+    total_ms = (request_finished_at - request_started_at) * 1000
 
     return Response(
         content=audio_bytes,
@@ -573,5 +565,11 @@ async def legacy_tts(request: Request):
             "X-CosyVoice-Speaker": resolved_speaker,
             "X-CosyVoice-Prompt-Override": str(bool(prompt)).lower(),
             "X-CosyVoice-Segments": str(len(segments)),
+            "X-CosyVoice-Inference-Ms": f"{inference_ms:.1f}",
+            "X-CosyVoice-Encode-Ms": f"{encode_ms:.1f}",
+            "Server-Timing": (
+                f'inference;dur={inference_ms:.1f}, '
+                f'encode;dur={encode_ms:.1f}, total;dur={total_ms:.1f}'
+            ),
         },
     )

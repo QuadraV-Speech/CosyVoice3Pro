@@ -34,6 +34,12 @@ parameters [
     value: {
       string_value: "64"
     }
+  },
+  {
+    key: "eager_cuda_init"
+    value: {
+      string_value: "false"
+    }
   }
 ]
 

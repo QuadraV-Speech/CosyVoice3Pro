@@ -70,8 +70,9 @@ transfer.
 
 | GPU | Concurrency | Success | P50 | P95 | Average RTF | Audio throughput |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| A100-SXM4-80GB | 1 | 8/8 | 1.37s | 1.55s | **0.148** | 6.76x |
-| A100-SXM4-80GB | 4 | 8/8 | 1.81s | 2.06s | **0.200** | 18.26x |
+| A100-SXM4-80GB | 12 | 24/24 | 3.17s | 3.89s | **0.336** | 29.80x |
+| A100-SXM4-80GB | 16 | 48/48 | 4.19s | 5.72s | **0.427** | 31.36x |
+| A100-SXM4-80GB | 24 | 48/48 | 6.13s | 7.38s | **0.593** | 31.61x |
 
 See the [benchmark methodology and reproduction command](docs/benchmark.md).
 Results vary with GPU, text, voice, and deployment configuration.
@@ -250,6 +251,20 @@ bash manage.sh backup
 | `COSYVOICE_GIT_PROXY` | Current proxy or empty | Proxy used to fetch upstream code |
 | `COSYVOICE_SPEAKER_STORE_DIR` | `data/speakers` | Persistent speaker storage |
 | `COSYVOICE_WEB_GATEWAY_ENABLED` | `true` | Enable the same-port Web Gateway |
+| `COSYVOICE_PERFORMANCE_PROFILE` | `auto` | Select `balanced` or `throughput` from GPU memory |
+| `COSYVOICE_KV_CACHE_FRACTION` | Profile default | TensorRT-LLM KV-cache memory fraction |
+| `COSYVOICE_PRO_BLS_INSTANCES` | Profile default | CosyVoice3Pro orchestration instances |
+| `COSYVOICE_TOKEN2WAV_INSTANCES` | Profile default | Acoustic-model instances |
+| `COSYVOICE_VOCODER_INSTANCES` | Profile default | Vocoder instances |
+| `COSYVOICE_TTS_INFERENCE_CONCURRENCY` | Profile default | Gateway-wide inference limit |
+| `COSYVOICE_TTS_SEGMENT_CONCURRENCY` | `2` | Per-request long-text segment limit |
+| `COSYVOICE_PRO_EAGER_CUDA_INIT` | Profile default | Warm Pro CUDA contexts before readiness |
+
+On an 80 GB GPU, `auto` enables the dual-token2wav, dual-vocoder throughput
+profile. Smaller GPUs retain conservative single instances. Restart after
+changing a performance variable. See the
+[benchmark and tuning guide](docs/benchmark.md) for the exact profiles and A/B
+results.
 
 ## Security
 

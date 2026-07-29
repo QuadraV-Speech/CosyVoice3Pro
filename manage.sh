@@ -32,7 +32,19 @@ LOG_FILE="/tmp/cosyvoice_triton.log"
 GATEWAY_LOG_FILE="/tmp/cosyvoice_gateway.log"
 
 DECOUPLED_MODE="False"
-KV_CACHE_FREE_GPU_MEMORY_FRACTION="0.6"
+
+# Performance profile. "auto" keeps the conservative single acoustic-model
+# instance on smaller GPUs and enables a dual-instance profile on 80 GB GPUs.
+PERFORMANCE_PROFILE="${COSYVOICE_PERFORMANCE_PROFILE:-auto}"
+PERFORMANCE_CONFIG_RESOLVED="false"
+KV_CACHE_FREE_GPU_MEMORY_FRACTION=""
+PRO_BLS_INSTANCE_COUNT=""
+LEGACY_BLS_INSTANCE_COUNT=""
+TOKEN2WAV_INSTANCE_COUNT=""
+VOCODER_INSTANCE_COUNT=""
+INFERENCE_CONCURRENCY=""
+SEGMENT_CONCURRENCY=""
+EAGER_CUDA_INIT=""
 
 # Git 克隆代理。优先使用专用变量，否则沿用当前 shell 的代理配置。
 GIT_PROXY_URL="${COSYVOICE_GIT_PROXY:-${HTTPS_PROXY:-${HTTP_PROXY:-}}}"
@@ -69,6 +81,96 @@ log_err() {
 
 log_step() {
     echo -e "${CYAN}========== $* ==========${NC}"
+}
+
+positive_integer() {
+    [[ "$1" =~ ^[1-9][0-9]*$ ]]
+}
+
+decimal_fraction() {
+    [[ "$1" =~ ^0\.[0-9]+$ ]] &&
+        awk -v value="$1" 'BEGIN { exit !(value > 0 && value < 1) }'
+}
+
+resolve_performance_config() {
+    if [ "${PERFORMANCE_CONFIG_RESOLVED}" = "true" ]; then
+        return
+    fi
+
+    local resolved_profile="${PERFORMANCE_PROFILE}"
+    local gpu_memory_mb=0
+    if [ "${resolved_profile}" = "auto" ] && container_running; then
+        gpu_memory_mb="$(
+            docker exec "${CONTAINER_NAME}" /bin/bash -lc \
+                "nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -n 1" \
+                2>/dev/null | tr -d '[:space:]'
+        )"
+        if ! positive_integer "${gpu_memory_mb:-0}"; then
+            gpu_memory_mb=0
+        fi
+        if [ "${gpu_memory_mb}" -ge 70000 ]; then
+            resolved_profile="throughput"
+        else
+            resolved_profile="balanced"
+        fi
+    fi
+
+    case "${resolved_profile}" in
+        throughput)
+            KV_CACHE_FREE_GPU_MEMORY_FRACTION="${COSYVOICE_KV_CACHE_FRACTION:-0.50}"
+            PRO_BLS_INSTANCE_COUNT="${COSYVOICE_PRO_BLS_INSTANCES:-12}"
+            LEGACY_BLS_INSTANCE_COUNT="${COSYVOICE_LEGACY_BLS_INSTANCES:-2}"
+            TOKEN2WAV_INSTANCE_COUNT="${COSYVOICE_TOKEN2WAV_INSTANCES:-2}"
+            VOCODER_INSTANCE_COUNT="${COSYVOICE_VOCODER_INSTANCES:-2}"
+            INFERENCE_CONCURRENCY="${COSYVOICE_TTS_INFERENCE_CONCURRENCY:-12}"
+            SEGMENT_CONCURRENCY="${COSYVOICE_TTS_SEGMENT_CONCURRENCY:-2}"
+            EAGER_CUDA_INIT="${COSYVOICE_PRO_EAGER_CUDA_INIT:-true}"
+            ;;
+        balanced)
+            KV_CACHE_FREE_GPU_MEMORY_FRACTION="${COSYVOICE_KV_CACHE_FRACTION:-0.60}"
+            PRO_BLS_INSTANCE_COUNT="${COSYVOICE_PRO_BLS_INSTANCES:-10}"
+            LEGACY_BLS_INSTANCE_COUNT="${COSYVOICE_LEGACY_BLS_INSTANCES:-2}"
+            TOKEN2WAV_INSTANCE_COUNT="${COSYVOICE_TOKEN2WAV_INSTANCES:-1}"
+            VOCODER_INSTANCE_COUNT="${COSYVOICE_VOCODER_INSTANCES:-1}"
+            INFERENCE_CONCURRENCY="${COSYVOICE_TTS_INFERENCE_CONCURRENCY:-10}"
+            SEGMENT_CONCURRENCY="${COSYVOICE_TTS_SEGMENT_CONCURRENCY:-2}"
+            EAGER_CUDA_INIT="${COSYVOICE_PRO_EAGER_CUDA_INIT:-false}"
+            ;;
+        *)
+            log_err "COSYVOICE_PERFORMANCE_PROFILE 仅支持 auto、balanced、throughput"
+            exit 1
+            ;;
+    esac
+
+    if ! decimal_fraction "${KV_CACHE_FREE_GPU_MEMORY_FRACTION}"; then
+        log_err "COSYVOICE_KV_CACHE_FRACTION 必须是 0 到 1 之间的小数"
+        exit 1
+    fi
+    local value
+    for value in \
+        "${PRO_BLS_INSTANCE_COUNT}" \
+        "${LEGACY_BLS_INSTANCE_COUNT}" \
+        "${TOKEN2WAV_INSTANCE_COUNT}" \
+        "${VOCODER_INSTANCE_COUNT}" \
+        "${INFERENCE_CONCURRENCY}" \
+        "${SEGMENT_CONCURRENCY}"; do
+        if ! positive_integer "${value}"; then
+            log_err "性能实例数和并发数必须是正整数"
+            exit 1
+        fi
+    done
+
+    PERFORMANCE_PROFILE="${resolved_profile}"
+    case "${EAGER_CUDA_INIT,,}" in
+        true|false)
+            EAGER_CUDA_INIT="${EAGER_CUDA_INIT,,}"
+            ;;
+        *)
+            log_err "COSYVOICE_PRO_EAGER_CUDA_INIT 仅支持 true 或 false"
+            exit 1
+            ;;
+    esac
+    PERFORMANCE_CONFIG_RESOLVED="true"
 }
 
 ###################################
@@ -342,6 +444,7 @@ git -c http.version=HTTP/1.1 submodule update --init --recursive --progress
 
 install_modify_script() {
     log_step "修改 run_cosyvoice3.sh 配置"
+    resolve_performance_config
 
     local triton_http_port=18000
     if [ "${WEB_GATEWAY_ENABLED}" = "true" ]; then
@@ -391,6 +494,7 @@ bash run_cosyvoice3.sh 0 2
 
 install_model_overrides() {
     log_step "部署 CosyVoice3Pro 和 Speaker Registry 模型"
+    resolve_performance_config
 
     local cosyvoice_model_dir="${TRITON_MODEL_OVERRIDES_DIR}/CosyVoice3Pro"
     local registry_model_dir="${TRITON_MODEL_OVERRIDES_DIR}/CosyVoice3ProSpeakerRegistry"
@@ -418,7 +522,22 @@ mkdir -p \
         "${registry_model_dir}/." \
         "${CONTAINER_NAME}:${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3ProSpeakerRegistry/"
 
+    exec_in_container "
+set -e
+sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${PRO_BLS_INSTANCE_COUNT}/' \
+  '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/config.pbtxt'
+sed -i -E '/key:[[:space:]]*\"eager_cuda_init\"/,/}/s/string_value:[[:space:]]*\"(true|false)\"/string_value: \"${EAGER_CUDA_INIT}\"/' \
+  '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/config.pbtxt'
+sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${LEGACY_BLS_INSTANCE_COUNT}/' \
+  '${TRITON_DIR}/model_repo_cosyvoice3_copy/cosyvoice3/config.pbtxt'
+sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${TOKEN2WAV_INSTANCE_COUNT}/' \
+  '${TRITON_DIR}/model_repo_cosyvoice3_copy/token2wav/config.pbtxt'
+sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${VOCODER_INSTANCE_COUNT}/' \
+  '${TRITON_DIR}/model_repo_cosyvoice3_copy/vocoder/config.pbtxt'
+"
+
     log_ok "模型覆盖文件部署完成"
+    log_info "实例配置：Pro BLS=${PRO_BLS_INSTANCE_COUNT}，Legacy BLS=${LEGACY_BLS_INSTANCE_COUNT}，token2wav=${TOKEN2WAV_INSTANCE_COUNT}，vocoder=${VOCODER_INSTANCE_COUNT}，eager CUDA=${EAGER_CUDA_INIT}"
     local mounted_store
     mounted_store="$(docker inspect "${CONTAINER_NAME}" --format \
         '{{range .Mounts}}{{if eq .Destination "/workspace/cosyvoice_speaker_store"}}{{.Source}}{{end}}{{end}}')"
@@ -436,6 +555,7 @@ install_web_gateway() {
     if [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/app.py" ] ||
        [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/legacy_tts.py" ] ||
        [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/speaker_registration.py" ] ||
+       [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/tts_utils.py" ] ||
        [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/web/index.html" ] ||
        [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/web/styles.css" ] ||
        [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/web/app.js" ]; then
@@ -480,13 +600,15 @@ install_service() {
     log_info "gRPC 端口：${HOST_GRPC_PORT}"
     log_info "Metrics 端口：${HOST_METRICS_PORT}"
     log_info "DECOUPLED_MODE：${DECOUPLED_MODE}"
-    log_info "KV_CACHE_FREE_GPU_MEMORY_FRACTION：${KV_CACHE_FREE_GPU_MEMORY_FRACTION}"
     log_info "WEB_GATEWAY_ENABLED：${WEB_GATEWAY_ENABLED}"
 
     log_step "拉取镜像"
     docker pull "${IMAGE_NAME}"
 
     install_create_container
+    resolve_performance_config
+    log_info "PERFORMANCE_PROFILE：${PERFORMANCE_PROFILE}"
+    log_info "KV_CACHE_FREE_GPU_MEMORY_FRACTION：${KV_CACHE_FREE_GPU_MEMORY_FRACTION}"
     install_clone_repo
     install_modify_script
     install_compile_triton_model
@@ -503,6 +625,7 @@ start_service() {
 
     ensure_container_running
     ensure_container_gpu_healthy
+    resolve_performance_config
 
     if service_process_running; then
         log_warn "检测到服务进程已存在"
@@ -531,6 +654,8 @@ nohup bash run_cosyvoice3.sh 3 3 > ${LOG_FILE} 2>&1 &
 
 cd ${CONTAINER_WEB_GATEWAY_DIR}
 COSYVOICE_TRITON_UPSTREAM=http://127.0.0.1:${TRITON_INTERNAL_HTTP_PORT} \
+COSYVOICE_TTS_INFERENCE_CONCURRENCY=${INFERENCE_CONCURRENCY} \
+COSYVOICE_TTS_SEGMENT_CONCURRENCY=${SEGMENT_CONCURRENCY} \
   nohup python3 -m uvicorn app:app \
     --host 0.0.0.0 \
     --port 18000 \
@@ -611,6 +736,32 @@ show_status() {
         if ! docker exec "${CONTAINER_NAME}" /bin/bash -lc "nvidia-smi --query-gpu=index,name,memory.used,memory.total --format=csv,noheader,nounits"; then
             log_warn "容器内 GPU/NVML 不可用，可执行：$0 start 自动尝试修复"
         fi
+    else
+        log_warn "容器未运行"
+    fi
+
+    echo ""
+    log_step "生效中的性能配置"
+
+    if container_exists && container_running; then
+        docker exec "${CONTAINER_NAME}" /bin/bash -lc "
+for model in CosyVoice3Pro cosyvoice3 token2wav vocoder; do
+    config='${TRITON_DIR}/model_repo_cosyvoice3_copy/'\"\${model}\"'/config.pbtxt'
+    count=\$(sed -n '/instance_group/,/]/p' \"\${config}\" 2>/dev/null |
+        sed -n -E 's/.*count:[[:space:]]*([0-9]+).*/\1/p' | head -n 1)
+    printf '%-30s instances=%s\n' \"\${model}\" \"\${count:-unknown}\"
+done
+sed -n '/key:[[:space:]]*\"eager_cuda_init\"/,/}/p' \
+    '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/config.pbtxt' |
+    grep 'string_value' | head -n 1 || true
+ps -ef | grep '[t]rtllm-serve serve' | grep -oE -- \
+    '--kv_cache_free_gpu_memory_fraction[[:space:]]+[0-9.]+' | head -n 1 || true
+gateway_pid=\$(pgrep -f '[u]vicorn app:app' | head -n 1)
+if [ -n \"\${gateway_pid}\" ]; then
+    tr '\0' '\n' < \"/proc/\${gateway_pid}/environ\" |
+        grep '^COSYVOICE_TTS_.*CONCURRENCY=' | sort || true
+fi
+"
     else
         log_warn "容器未运行"
     fi

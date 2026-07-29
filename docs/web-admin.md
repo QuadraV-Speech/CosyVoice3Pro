@@ -130,7 +130,29 @@ bash manage.sh restart
 - `/tts/` 不再提供音频流接口
 - `18001` 和 `18002` 不变
 
-## 7. 仓库结构
+## 7. 并发性能配置
+
+默认 `COSYVOICE_PERFORMANCE_PROFILE=auto`。80GB GPU 自动启用双
+token2wav、双 vocoder 的 `throughput` profile，其他 GPU 使用保守的
+`balanced` profile。
+
+手动切换并重启：
+
+```bash
+COSYVOICE_PERFORMANCE_PROFILE=throughput \
+  bash manage.sh restart
+```
+
+```bash
+COSYVOICE_PERFORMANCE_PROFILE=balanced \
+  bash manage.sh restart
+```
+
+`/tts/` 会返回 `Server-Timing`、`X-CosyVoice-Inference-Ms` 和
+`X-CosyVoice-Encode-Ms`，可用于区分模型排队和音频编码耗时。实例数、
+显存参数、压力测试和调优方法见[性能基准文档](benchmark.md)。
+
+## 8. 仓库结构
 
 ```text
 gateway/
@@ -152,7 +174,7 @@ CosyVoice3Pro 自身，不依赖额外的 Python UI 服务。网页的文件上�
 - [对外开发者 API](public-api.md)
 - [内部 Triton 高级 API](advanced-api.md)
 
-## 8. 安全说明
+## 9. 安全说明
 
 当前 `18000` Triton API、声纹注册、TTS 接口和管理网页没有应用层账号
 认证，与升级前的 Triton API 权限模型一致。管理页面包含注册和删除操作，
