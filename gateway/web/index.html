@@ -46,7 +46,7 @@
             <strong id="sidebar-status-text">正在连接</strong>
           </span>
         </div>
-        <span class="version">Web Gateway v1.2</span>
+        <span class="version">Web Gateway v1.3</span>
       </div>
     </aside>
 
@@ -323,13 +323,45 @@
         </div>
 
         <div class="field">
-          <label>提示音频</label>
+          <label>音频来源</label>
+          <div class="audio-source-tabs" role="radiogroup" aria-label="音频来源">
+            <label>
+              <input
+                type="radio"
+                name="register-audio-source"
+                value="upload"
+                checked>
+              <span>上传音频</span>
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="register-audio-source"
+                value="url">
+              <span>音频 URL</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="field" id="audio-upload-field">
+          <label>提示音频文件</label>
           <label class="drop-zone" id="drop-zone" for="reference-audio">
             <input id="reference-audio" type="file" accept="audio/*,.m4a">
             <span class="upload-icon">↥</span>
             <strong id="upload-title">点击选择或拖入音频</strong>
             <p id="upload-meta">支持 WAV、MP3、M4A；建议 3～10 秒清晰单人声</p>
           </label>
+        </div>
+
+        <div class="field is-hidden" id="audio-url-field">
+          <label for="reference-audio-url">提示音频 URL</label>
+          <input
+            id="reference-audio-url"
+            type="url"
+            maxlength="2048"
+            inputmode="url"
+            placeholder="https://example.com/reference.mp3">
+          <small>仅支持可公开访问的 HTTP/HTTPS 地址，最大 32 MiB。</small>
         </div>
 
         <div class="field">

@@ -1034,6 +1034,49 @@ select {
   border-top: 1px solid var(--line);
 }
 
+.audio-source-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 9px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: #11140f;
+}
+
+.audio-source-tabs label {
+  cursor: pointer;
+}
+
+.audio-source-tabs input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+}
+
+.audio-source-tabs span {
+  display: grid;
+  min-height: 38px;
+  place-items: center;
+  color: var(--muted-strong);
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 700;
+  transition: color 140ms ease, background 140ms ease;
+}
+
+.audio-source-tabs input:checked + span {
+  color: #11150b;
+  background: var(--lime);
+}
+
+.audio-source-tabs input:focus-visible + span {
+  box-shadow: 0 0 0 3px rgba(200, 244, 93, 0.16);
+}
+
 .drop-zone {
   display: grid;
   place-items: center;

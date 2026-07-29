@@ -435,6 +435,7 @@ install_web_gateway() {
 
     if [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/app.py" ] ||
        [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/legacy_tts.py" ] ||
+       [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/speaker_registration.py" ] ||
        [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/web/index.html" ] ||
        [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/web/styles.css" ] ||
        [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/web/app.js" ]; then

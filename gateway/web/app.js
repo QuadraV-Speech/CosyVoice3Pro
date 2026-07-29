@@ -49,6 +49,9 @@ const elements = {
   registerButton: document.querySelector("#register-button"),
   registerSpeakerId: document.querySelector("#register-speaker-id"),
   referenceAudio: document.querySelector("#reference-audio"),
+  referenceAudioUrl: document.querySelector("#reference-audio-url"),
+  audioUploadField: document.querySelector("#audio-upload-field"),
+  audioUrlField: document.querySelector("#audio-url-field"),
   referenceText: document.querySelector("#reference-text"),
   defaultPrompt: document.querySelector("#default-prompt"),
   dropZone: document.querySelector("#drop-zone"),
@@ -410,30 +413,6 @@ async function synthesize(event) {
   }
 }
 
-async function decodeAudioTo16kMono(file) {
-  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-  if (!AudioContextClass || !window.OfflineAudioContext) {
-    throw new Error("当前浏览器不支持音频解码，请使用最新版 Chrome 或 Edge");
-  }
-
-  const context = new AudioContextClass();
-  let decoded;
-  try {
-    decoded = await context.decodeAudioData(await file.arrayBuffer());
-  } finally {
-    await context.close();
-  }
-
-  const sampleCount = Math.ceil(decoded.duration * 16000);
-  const offline = new OfflineAudioContext(1, sampleCount, 16000);
-  const source = offline.createBufferSource();
-  source.buffer = decoded;
-  source.connect(offline.destination);
-  source.start(0);
-  const rendered = await offline.startRendering();
-  return new Float32Array(rendered.getChannelData(0));
-}
-
 function setSelectedFile(file) {
   state.selectedAudioFile = file || null;
   if (!file) {
@@ -446,52 +425,74 @@ function setSelectedFile(file) {
   elements.uploadMeta.textContent = `${(file.size / 1024 / 1024).toFixed(2)} MB · 注册时自动转为 16kHz 单声道`;
 }
 
+function registerAudioSource() {
+  const selected = document.querySelector(
+    'input[name="register-audio-source"]:checked',
+  );
+  return selected ? selected.value : "upload";
+}
+
+function updateRegisterAudioSource() {
+  const source = registerAudioSource();
+  const useUrl = source === "url";
+  elements.audioUploadField.classList.toggle("is-hidden", useUrl);
+  elements.audioUrlField.classList.toggle("is-hidden", !useUrl);
+  if (useUrl) {
+    window.setTimeout(() => elements.referenceAudioUrl.focus(), 40);
+  }
+}
+
 async function registerSpeaker(event) {
   event.preventDefault();
   const speakerId = elements.registerSpeakerId.value.trim();
   const referenceText = elements.referenceText.value.trim();
   const prompt = elements.defaultPrompt.value.trim();
+  const source = registerAudioSource();
   const file = state.selectedAudioFile || elements.referenceAudio.files[0];
+  const audioUrl = elements.referenceAudioUrl.value.trim();
   if (!speakerId || !referenceText) return;
-  if (!file) {
+  if (source === "upload" && !file) {
     toast("请选择提示音频", "支持 WAV、MP3、M4A 等浏览器可解码格式。", "error");
+    return;
+  }
+  if (source === "url" && !audioUrl) {
+    toast("请输入音频 URL", "URL 必须可以由服务端公开访问。", "error");
     return;
   }
 
   setButtonLoading(
     elements.registerButton,
     true,
-    "正在解码和提取特征…",
+    "正在处理并提取特征…",
     "提取特征并注册",
   );
 
   try {
-    const waveform = await decodeAudioTo16kMono(file);
-    const duration = waveform.length / 16000;
-    if (duration < 0.5 || duration > 30) {
-      throw new Error("提示音频长度必须在 0.5～30 秒之间");
+    const formData = new FormData();
+    formData.append("speakerId", speakerId);
+    formData.append("reference_text", referenceText);
+    formData.append("prompt", prompt);
+    if (source === "url") {
+      formData.append("audio_url", audioUrl);
+    } else {
+      formData.append("audio", file);
     }
-    const payload = await infer(REGISTRY_MODEL, [
-      tritonInput("operation", [1, 1], "BYTES", ["register"]),
-      tritonInput("speaker_id", [1, 1], "BYTES", [speakerId]),
-      tritonInput(
-        "reference_wav",
-        [1, waveform.length],
-        "FP32",
-        [Array.from(waveform)],
-      ),
-      tritonInput("reference_wav_len", [1, 1], "INT32", [[waveform.length]]),
-      tritonInput("reference_text", [1, 1], "BYTES", [referenceText]),
-      tritonInput("prompt", [1, 1], "BYTES", [prompt]),
-    ]);
-    const message = registryMessage(payload);
+
+    const payload = await requestJson("/register", {
+      method: "POST",
+      body: formData,
+    });
+    const duration = payload.metadata
+      ? payload.metadata.duration_seconds
+      : null;
     toast(
       "声纹注册成功",
-      `${speakerId} · ${message.duration_seconds || duration.toFixed(2)} 秒`,
+      `${speakerId} · ${duration || "—"} 秒 · ${source === "url" ? "URL" : "上传"}`,
     );
     elements.registerDialog.close();
     elements.registerForm.reset();
     setSelectedFile(null);
+    updateRegisterAudioSource();
     await refreshSpeakers();
     elements.speakerSelect.value = speakerId;
     updatePersonaPreview();
@@ -501,7 +502,7 @@ async function registerSpeaker(event) {
     setButtonLoading(
       elements.registerButton,
       false,
-      "正在解码和提取特征…",
+      "正在处理并提取特征…",
       "提取特征并注册",
     );
   }
@@ -550,6 +551,11 @@ function bindEvents() {
   elements.speakerSearch.addEventListener("input", renderSpeakerTable);
   elements.synthesisForm.addEventListener("submit", synthesize);
   elements.registerForm.addEventListener("submit", registerSpeaker);
+  document
+    .querySelectorAll('input[name="register-audio-source"]')
+    .forEach((input) =>
+      input.addEventListener("change", updateRegisterAudioSource),
+    );
   elements.targetText.addEventListener("input", () => {
     elements.textCount.textContent = String(elements.targetText.value.length);
   });
@@ -577,7 +583,13 @@ function bindEvents() {
   }
   elements.dropZone.addEventListener("drop", (event) => {
     const file = event.dataTransfer.files[0];
-    if (file) setSelectedFile(file);
+    if (file) {
+      document.querySelector(
+        'input[name="register-audio-source"][value="upload"]',
+      ).checked = true;
+      updateRegisterAudioSource();
+      setSelectedFile(file);
+    }
   });
 
   elements.audioPlayer.addEventListener("play", () =>
@@ -593,6 +605,7 @@ function bindEvents() {
 async function initialize() {
   buildWaveBars();
   bindEvents();
+  updateRegisterAudioSource();
   await refreshAll();
   window.setInterval(refreshHealth, 30000);
 }

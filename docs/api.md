@@ -18,6 +18,8 @@ http://127.0.0.1:18000/
 
 同一 Gateway 还提供统一音频流接口 `POST /tts/`，支持内置声音、已注册
 Speaker ID、即时提示音频、自定义画像和音频后处理，详见第 14 节。
+面向业务调用方的 `POST /register` 支持音频文件和公开音频 URL 注册，
+详见第 15 节。
 
 本次升级新增两个能力：
 
@@ -773,3 +775,115 @@ Web 合成工作台使用同一个 `/tts/` 接口，支持选择：
 - 较小、标准、较大音量
 - PCM、MP3、WAV、AAC、M4A、Opus、OGG、FLAC、WebM
 - 长文本分段字符数
+
+## 15. 对外声纹注册接口
+
+### 15.1 接口地址
+
+```text
+POST http://服务器地址:18000/register
+```
+
+`/register` 是面向业务调用方的简化注册接口。它支持直接上传音频文件，
+也支持由服务端下载公开音频 URL。两种方式都会通过 FFmpeg 自动转换成
+16kHz 单声道浮点音频，再调用 Speaker Registry 提取并持久化声纹特征。
+
+### 15.2 请求参数
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `speakerId` | string | 是 | 声纹 ID；也支持别名 `speaker_id` |
+| `reference_text` | string | 是 | 音频中实际说出的准确文本，最多 4096 字；也支持 `referenceText` |
+| `prompt` | string | 否 | 注册声纹的默认画像，默认空，最多 512 字 |
+| `audio` | file | 二选一 | 上传的提示音频；兼容字段名 `prompt_audio` |
+| `audio_url` | string | 二选一 | 可公开访问的音频地址；也支持 `audioUrl` |
+
+`audio` 与 `audio_url` 必须且只能提供一个。音频时长必须为
+0.5～30 秒，上传请求体或 URL 下载内容最大为 32 MiB。支持 FFmpeg
+可以解码的 WAV、MP3、M4A、AAC、FLAC、OGG、Opus、WebM 等格式。
+
+### 15.3 上传音频文件 curl
+
+```bash
+curl --fail-with-body \
+  -X POST "http://127.0.0.1:18000/register" \
+  -F "speakerId=narrator_upload_01" \
+  -F "audio=@./reference.wav;type=audio/wav" \
+  -F "reference_text=这是参考音频中实际说出的内容。" \
+  -F "prompt=请用成熟、稳重、亲切的语气说话。"
+```
+
+### 15.4 使用音频 URL curl
+
+URL 模式可以使用 JSON：
+
+```bash
+curl --fail-with-body \
+  -X POST "http://127.0.0.1:18000/register" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "speakerId": "narrator_url_01",
+    "audio_url": "https://example.com/reference.mp3",
+    "reference_text": "这是参考音频中实际说出的内容。",
+    "prompt": "请用成熟、稳重、亲切的语气说话。"
+  }'
+```
+
+也可以使用表单：
+
+```bash
+curl --fail-with-body \
+  -X POST "http://127.0.0.1:18000/register" \
+  -F "speakerId=narrator_url_01" \
+  -F "audio_url=https://example.com/reference.mp3" \
+  -F "reference_text=这是参考音频中实际说出的内容。" \
+  -F "prompt="
+```
+
+### 15.5 成功响应
+
+```json
+{
+  "status": "ok",
+  "speakerId": "narrator_url_01",
+  "speakerVersion": "示例版本号",
+  "source": "url",
+  "metadata": {
+    "speaker_id": "narrator_url_01",
+    "speaker_version": "示例版本号",
+    "reference_transcript": "这是参考音频中实际说出的内容。",
+    "prompt": "请用成熟、稳重、亲切的语气说话。",
+    "sample_rate": 16000,
+    "duration_seconds": 3.48
+  }
+}
+```
+
+`source` 为 `upload` 或 `url`。使用已存在的 `speakerId` 会原子更新该
+声纹，并生成新的 `speakerVersion`。
+
+### 15.6 URL 安全规则
+
+服务端下载 URL 时会执行以下限制：
+
+- 仅允许 `http` 和 `https`
+- 禁止 URL 中携带用户名和密码
+- 禁止回环、内网、链路本地和其他非公网 IP
+- 每次重定向都会重新校验地址，最多允许 3 次重定向
+- 连接超时 10 秒，读取超时 30 秒
+- 下载内容最大 32 MiB，下载后必须能被 FFmpeg 解码
+
+因此 `localhost`、`127.0.0.1`、`10.0.0.0/8`、
+`172.16.0.0/12`、`192.168.0.0/16` 和云元数据地址不能作为
+`audio_url`。
+
+### 15.7 常见错误
+
+| 状态码 | 说明 |
+| --- | --- |
+| `400` | 必填文本为空、URL 下载失败或音频无法解码 |
+| `413` | 上传请求体或 URL 音频超过 32 MiB |
+| `415` | 请求 Content-Type 不受支持 |
+| `422` | Speaker ID、URL、字段组合或文本长度非法 |
+| `502` | Speaker Registry 注册失败或返回非法响应 |
+| `503` | Triton、GPU 或 Speaker Registry 暂时不可用 |

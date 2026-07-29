@@ -9,10 +9,11 @@ from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
 from legacy_tts import router as legacy_tts_router
+from speaker_registration import router as speaker_registration_router
 
 
 SERVICE_NAME = "CosyVoice3Pro Web Gateway"
-SERVICE_VERSION = "1.2.0"
+SERVICE_VERSION = "1.3.0"
 TRITON_UPSTREAM = os.environ.get(
     "COSYVOICE_TRITON_UPSTREAM", "http://127.0.0.1:18100").rstrip("/")
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -53,6 +54,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(legacy_tts_router)
+app.include_router(speaker_registration_router)
 
 
 def _forward_headers(headers):
@@ -85,6 +87,7 @@ async def service_info(request: Request):
         "triton_ready": ready,
         "routes": {
             "web": "/",
+            "register": "/register",
             "tts": "/tts/",
             "triton": "/v2/",
             "grpc_port": 18001,

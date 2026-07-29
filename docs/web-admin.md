@@ -18,7 +18,7 @@ http://服务器地址:18000/v2/
 
 | 端口 | 用途 |
 | --- | --- |
-| `18000` | Web 管理后台、统一 TTS 和 Triton HTTP Gateway |
+| `18000` | Web 管理后台、声纹注册、统一 TTS 和 Triton HTTP Gateway |
 | `18001` | Triton gRPC |
 | `18002` | Triton Metrics |
 
@@ -30,10 +30,11 @@ http://服务器地址:18000/v2/
           18000
               |
     CosyVoice3Pro Web Gateway
-       |          |             |
-       | /        | /tts/       | /v2/*
-       v          v             v
-  静态管理网页  音频流接口   Triton HTTP :18100
+       |              |             |
+       | /            | /register   | /v2/*
+       |              | /tts/       |
+       v              v             v
+  静态管理网页      业务 API     Triton HTTP :18100
                                |
                        CosyVoice3Pro Models
 ```
@@ -47,7 +48,8 @@ http://服务器地址:18000/v2/
 - Triton、Gateway 和模型健康状态
 - 已注册 Speaker 列表和搜索
 - 上传 WAV、MP3、M4A 等提示音频
-- 浏览器端转换为 16kHz 单声道 FP32
+- 使用公开 HTTP/HTTPS 音频 URL 注册声纹
+- 服务端统一转换为 16kHz 单声道 FP32
 - 注册或更新 Speaker
 - 设置注册默认 `prompt` 画像
 - 推理时使用默认画像或非空 `prompt` 单次覆盖
@@ -119,6 +121,7 @@ bash manage.sh restart
 
 - `/v2/*` Triton API 继续使用 `18000`
 - `/` 不再提供管理网页
+- `/register` 不再提供对外声纹注册
 - `/tts/` 不再提供音频流接口
 - `18001` 和 `18002` 不变
 
@@ -134,10 +137,12 @@ data/speakers/
 ```
 
 Web Gateway、Triton Models、命令行客户端和 Speaker 数据均属于
-CosyVoice3Pro 自身，不依赖额外的 Python UI 服务。
+CosyVoice3Pro 自身，不依赖额外的 Python UI 服务。网页的文件上传和
+音频 URL 注册都通过 `POST /register` 完成，由服务端统一下载、转码和
+校验。
 
 ## 8. 安全说明
 
-当前 `18000` Triton API、TTS 接口和管理网页没有应用层账号认证，与
-升级前的 Triton API 权限模型一致。管理页面包含注册和删除操作，应只向
-可信内网开放，或在外层反向代理、防火墙中增加认证和来源限制。
+当前 `18000` Triton API、声纹注册、TTS 接口和管理网页没有应用层账号
+认证，与升级前的 Triton API 权限模型一致。管理页面包含注册和删除操作，
+应只向可信内网开放，或在外层反向代理、防火墙中增加认证和来源限制。
