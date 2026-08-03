@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>CosyVoice3Pro 推理链路</title>
+  <style>
+    :root {
+      --bg: #07111f;
+      --panel: rgba(13, 27, 45, .86);
+      --panel-strong: #10243b;
+      --line: rgba(148, 163, 184, .25);
+      --text: #e8f0fa;
+      --muted: #9fb1c6;
+      --cyan: #38d4e8;
+      --blue: #5b8cff;
+      --purple: #a982ff;
+      --orange: #ffb45b;
+      --green: #4cdda0;
+      --red: #ff7184;
+      --shadow: 0 24px 80px rgba(0, 0, 0, .28);
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 15% -10%, rgba(56, 212, 232, .16), transparent 30%),
+        radial-gradient(circle at 90% 8%, rgba(169, 130, 255, .18), transparent 28%),
+        linear-gradient(180deg, #081524 0%, var(--bg) 72%);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.65;
+    }
+
+    body::before {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      content: "";
+      opacity: .15;
+      background-image:
+        linear-gradient(rgba(148, 163, 184, .12) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(148, 163, 184, .12) 1px, transparent 1px);
+      background-size: 42px 42px;
+      mask-image: linear-gradient(to bottom, black, transparent 85%);
+    }
+
+    a { color: var(--cyan); }
+
+    .page {
+      width: min(1500px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 54px 0 90px;
+    }
+
+    .hero {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 32px;
+      margin-bottom: 30px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 12px;
+      color: var(--cyan);
+      font-size: 13px;
+      font-weight: 750;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 18px var(--cyan);
+      content: "";
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 1000px;
+      font-size: clamp(36px, 6vw, 72px);
+      line-height: 1.08;
+      letter-spacing: -.045em;
+    }
+
+    h1 span {
+      background: linear-gradient(110deg, #fff 10%, var(--cyan) 54%, var(--purple));
+      background-clip: text;
+      color: transparent;
+    }
+
+    .lede {
+      max-width: 920px;
+      margin: 18px 0 0;
+      color: var(--muted);
+      font-size: clamp(16px, 2vw, 20px);
+    }
+
+    .actions {
+      display: flex;
+      flex: 0 0 auto;
+      gap: 10px;
+      padding-top: 28px;
+    }
+
+    button, .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 42px;
+      padding: 0 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: var(--text);
+      background: rgba(16, 36, 59, .75);
+      font: inherit;
+      font-size: 14px;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    button:hover, .button:hover { border-color: rgba(56, 212, 232, .65); }
+
+    .truth {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 16px;
+      align-items: center;
+      margin: 26px 0;
+      padding: 18px 22px;
+      border: 1px solid rgba(76, 221, 160, .35);
+      border-radius: 18px;
+      background: linear-gradient(90deg, rgba(76, 221, 160, .12), rgba(56, 212, 232, .05));
+    }
+
+    .truth strong {
+      display: grid;
+      width: 60px;
+      height: 60px;
+      place-items: center;
+      border: 1px solid rgba(76, 221, 160, .55);
+      border-radius: 17px;
+      color: var(--green);
+      background: rgba(76, 221, 160, .1);
+      font-size: 28px;
+    }
+
+    .truth p { margin: 0; }
+    .truth b { color: var(--green); }
+
+    .diagram-shell {
+      overflow: hidden;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 26px;
+      background: rgba(7, 17, 31, .76);
+      box-shadow: var(--shadow);
+    }
+
+    .diagram-shell svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      min-width: 1060px;
+    }
+
+    .diagram-scroll { overflow-x: auto; border-radius: 20px; }
+
+    .section-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
+      margin: 58px 0 20px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: clamp(25px, 4vw, 38px);
+      line-height: 1.2;
+      letter-spacing: -.025em;
+    }
+
+    .section-head p { margin: 0; color: var(--muted); }
+
+    .input-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      counter-reset: flow-input;
+    }
+
+    .input-card {
+      position: relative;
+      min-height: 240px;
+      padding: 22px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: var(--panel);
+    }
+
+    .input-card::after {
+      position: absolute;
+      right: -12px;
+      bottom: -40px;
+      color: rgba(255, 255, 255, .035);
+      font-size: 150px;
+      font-weight: 850;
+      counter-increment: flow-input;
+      content: counter(flow-input);
+    }
+
+    .input-card .number {
+      display: inline-grid;
+      width: 34px;
+      height: 34px;
+      margin-bottom: 20px;
+      place-items: center;
+      border-radius: 10px;
+      color: #07111f;
+      background: var(--accent);
+      font-weight: 850;
+    }
+
+    .input-card h3 { margin: 0 0 8px; font-size: 18px; }
+    .input-card code { color: var(--accent); font-size: 13px; word-break: break-word; }
+    .input-card p { position: relative; z-index: 1; margin: 14px 0 0; color: var(--muted); font-size: 14px; }
+
+    .layers {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr 1fr;
+      gap: 14px;
+    }
+
+    .layer {
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: var(--panel);
+    }
+
+    .layer small {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--accent);
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .layer h3 { margin: 0 0 12px; font-size: 19px; }
+    .layer p { margin: 0; color: var(--muted); }
+    .layer code { color: var(--text); }
+
+    .note {
+      margin-top: 14px;
+      padding: 18px 20px;
+      border-left: 3px solid var(--orange);
+      border-radius: 4px 14px 14px 4px;
+      color: var(--muted);
+      background: rgba(255, 180, 91, .08);
+    }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      margin-top: 54px;
+      padding-top: 22px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 1000px) {
+      .hero { display: block; }
+      .actions { padding-top: 20px; }
+      .input-grid { grid-template-columns: repeat(2, 1fr); }
+      .layers { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 620px) {
+      .page { width: min(100% - 24px, 1500px); padding-top: 30px; }
+      .input-grid { grid-template-columns: 1fr; }
+      .truth { grid-template-columns: 1fr; }
+      .section-head { display: block; }
+      .section-head p { margin-top: 8px; }
+      .footer { display: block; }
+    }
+
+    @media print {
+      @page { size: A3 landscape; margin: 10mm; }
+      body { background: #07111f; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      body::before, .actions { display: none; }
+      .page { width: 100%; padding: 0; }
+      .diagram-shell { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div>
+        <div class="eyebrow">CosyVoice3Pro · Triton Inference Pipeline</div>
+        <h1>从文字和声纹条件到<br><span>24 kHz 语音波形</span></h1>
+        <p class="lede">
+          精确到 Triton 模型边界的推理链路。图中分别标明 Speech LLM 的上下文、
+          Flow 的四个核心输入，以及流式调度参数，避免把不同抽象层的张量混在一起。
+        </p>
+      </div>
+      <div class="actions">
+        <a class="button" href="#flow-inputs">查看 4 个输入</a>
+        <button type="button" onclick="window.print()">打印 / 导出 PDF</button>
+      </div>
+    </header>
+
+    <aside class="truth">
+      <strong>4</strong>
+      <p>
+        <b>Flow/token2wav 的四个核心数据输入：</b>
+        目标语音 Token、参考语音 Token、参考 Mel、说话人 Embedding。
+        <code>token_offset</code> 和 <code>finalize</code> 是可选流式控制量，不是第五、第六个声学条件。
+      </p>
+    </aside>
+
+    <section class="diagram-shell" aria-label="CosyVoice3Pro 推理链路图">
+      <div class="diagram-scroll">
+        <svg viewBox="0 0 1700 930" role="img" aria-labelledby="diagram-title diagram-desc">
+          <title id="diagram-title">CosyVoice3Pro Triton 推理链路</title>
+          <desc id="diagram-desc">参考音频或注册声纹产生三组提示特征，文本和完整参考语音 Token 输入 Speech LLM，LLM 输出目标语音 Token；目标语音 Token 与三组提示特征共同构成 Flow 的四个核心输入，随后由 Vocoder 生成音频。</desc>
+          <defs>
+            <linearGradient id="panelGradient" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#142b47"/>
+              <stop offset="1" stop-color="#0b1b2e"/>
+            </linearGradient>
+            <linearGradient id="flowGradient" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#21376b"/>
+              <stop offset=".52" stop-color="#1a3156"/>
+              <stop offset="1" stop-color="#152b47"/>
+            </linearGradient>
+            <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity=".24"/>
+            </filter>
+            <marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#5b8cff"/>
+            </marker>
+            <marker id="arrow-cyan" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#38d4e8"/>
+            </marker>
+            <marker id="arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#4cdda0"/>
+            </marker>
+            <marker id="arrow-orange" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#ffb45b"/>
+            </marker>
+            <style>
+              .lane-label { fill: #7990a8; font: 700 13px Inter, sans-serif; letter-spacing: 2px; }
+              .title { fill: #f2f7fc; font: 750 20px Inter, "PingFang SC", sans-serif; }
+              .body { fill: #aebfd0; font: 500 14px Inter, "PingFang SC", sans-serif; }
+              .tiny { fill: #8095ab; font: 500 12px Inter, "PingFang SC", sans-serif; }
+              .mono { fill: #dce8f5; font: 600 12px ui-monospace, monospace; }
+              .box { fill: url(#panelGradient); stroke: rgba(148,163,184,.28); stroke-width: 1.5; }
+              .soft { fill: rgba(15,35,57,.76); stroke: rgba(148,163,184,.22); stroke-width: 1.3; }
+              .path-blue { fill: none; stroke: #5b8cff; stroke-width: 2.4; marker-end: url(#arrow-blue); }
+              .path-cyan { fill: none; stroke: #38d4e8; stroke-width: 2.4; marker-end: url(#arrow-cyan); }
+              .path-green { fill: none; stroke: #4cdda0; stroke-width: 2.4; marker-end: url(#arrow-green); }
+              .path-muted { fill: none; stroke: #657b91; stroke-width: 1.7; stroke-dasharray: 7 7; }
+            </style>
+          </defs>
+
+          <rect x="0" y="0" width="1700" height="930" rx="22" fill="#081421"/>
+          <path d="M0 305 H1700 M0 760 H1700" stroke="rgba(148,163,184,.13)" stroke-width="1"/>
+          <text class="lane-label" x="40" y="42">① TEXT / SPEECH LLM</text>
+          <text class="lane-label" x="40" y="340">② PROMPT CONDITIONING</text>
+          <text class="lane-label" x="40" y="795">③ ACOUSTIC DECODING</text>
+
+          <!-- Text composition -->
+          <rect class="box" filter="url(#shadow)" x="40" y="77" width="275" height="180" rx="18"/>
+          <rect x="62" y="98" width="90" height="25" rx="12" fill="rgba(56,212,232,.12)" stroke="rgba(56,212,232,.35)"/>
+          <text x="77" y="116" fill="#38d4e8" font-size="12" font-weight="750">文本条件</text>
+          <text class="title" x="62" y="153">上下文组装</text>
+          <text class="body" x="62" y="181">自定义 / 默认 prompt</text>
+          <text class="mono" x="62" y="204">&lt;|endofprompt|&gt;</text>
+          <text class="body" x="62" y="227">参考转写 + 目标文本</text>
+
+          <!-- LLM -->
+          <rect class="box" filter="url(#shadow)" x="470" y="77" width="330" height="180" rx="18"/>
+          <rect x="492" y="98" width="121" height="25" rx="12" fill="rgba(169,130,255,.13)" stroke="rgba(169,130,255,.4)"/>
+          <text x="507" y="116" fill="#b697ff" font-size="12" font-weight="750">TensorRT-LLM</text>
+          <text class="title" x="492" y="153">Speech LLM</text>
+          <text class="body" x="492" y="181">User：完整文本上下文</text>
+          <text class="body" x="492" y="205">Assistant prefix：</text>
+          <text class="mono" x="492" y="229">完整参考语音 Token</text>
+
+          <!-- Target semantic tokens -->
+          <rect class="box" filter="url(#shadow)" x="950" y="98" width="280" height="138" rx="18"/>
+          <text class="title" x="974" y="139">目标语音 Token</text>
+          <text class="mono" x="974" y="169">target_speech_tokens</text>
+          <text class="body" x="974" y="199">约 25 token/s · INT32</text>
+
+          <path class="path-blue" d="M315 167 H470"/>
+          <path class="path-blue" d="M800 167 H950"/>
+          <text class="tiny" x="345" y="152">reference_text + target_text</text>
+
+          <!-- Prompt source -->
+          <rect class="box" filter="url(#shadow)" x="40" y="374" width="275" height="330" rx="18"/>
+          <text class="title" x="62" y="414">两种提示来源</text>
+
+          <rect class="soft" x="62" y="440" width="231" height="102" rx="14"/>
+          <circle cx="84" cy="464" r="7" fill="#38d4e8"/>
+          <text x="101" y="470" fill="#38d4e8" font-size="14" font-weight="750">即时克隆</text>
+          <text class="body" x="82" y="498">reference_wav（16 kHz）</text>
+          <text class="body" x="82" y="522">每次或首次提取特征</text>
+
+          <text x="160" y="571" fill="#72879d" font-size="12">或</text>
+
+          <rect class="soft" x="62" y="590" width="231" height="91" rx="14"/>
+          <circle cx="84" cy="614" r="7" fill="#4cdda0"/>
+          <text x="101" y="620" fill="#4cdda0" font-size="14" font-weight="750">注册声纹</text>
+          <text class="body" x="82" y="648">speakerId → NPZ / LRU</text>
+          <text class="body" x="82" y="670">直接复用预计算条件</text>
+
+          <!-- Prompt preparation -->
+          <rect class="box" filter="url(#shadow)" x="390" y="374" width="320" height="330" rx="18"/>
+          <text class="title" x="414" y="414">Prompt 特征准备</text>
+          <text class="body" x="414" y="448">Audio Tokenizer</text>
+          <text class="tiny" x="414" y="470">参考音频 → 离散语音 Token</text>
+          <line x1="414" y1="490" x2="686" y2="490" stroke="rgba(148,163,184,.18)"/>
+          <text class="body" x="414" y="522">Mel Extractor</text>
+          <text class="tiny" x="414" y="544">16 kHz → 24 kHz → 80-bin Mel</text>
+          <line x1="414" y1="564" x2="686" y2="564" stroke="rgba(148,163,184,.18)"/>
+          <text class="body" x="414" y="596">CAMPPlus</text>
+          <text class="tiny" x="414" y="618">80-bin FBank → 192-d 声纹向量</text>
+          <rect x="414" y="645" width="230" height="34" rx="9" fill="rgba(255,180,91,.1)" stroke="rgba(255,180,91,.28)"/>
+          <text x="430" y="667" fill="#ffbd6f" font-size="12" font-weight="650">Token : Mel 对齐比例 = 1 : 2</text>
+
+          <path class="path-cyan" d="M315 539 H390"/>
+          <path class="path-green" d="M315 635 H355 Q375 635 390 615"/>
+
+          <!-- Prepared prompt outputs -->
+          <rect class="soft" x="760" y="350" width="290" height="78" rx="14"/>
+          <text x="782" y="380" fill="#b697ff" font-size="14" font-weight="750">LLM 专用完整参考 Token</text>
+          <text class="mono" x="782" y="405">prompt_tokens_for_llm</text>
+
+          <rect class="soft" x="760" y="450" width="290" height="72" rx="14"/>
+          <text x="782" y="478" fill="#38d4e8" font-size="14" font-weight="750">② 对齐后的参考语音 Token</text>
+          <text class="mono" x="782" y="502">prompt_speech_tokens [B, P]</text>
+
+          <rect class="soft" x="760" y="544" width="290" height="72" rx="14"/>
+          <text x="782" y="572" fill="#ffb45b" font-size="14" font-weight="750">③ 参考 Mel 特征</text>
+          <text class="mono" x="782" y="596">prompt_speech_feat [B, 2P, 80]</text>
+
+          <rect class="soft" x="760" y="638" width="290" height="72" rx="14"/>
+          <text x="782" y="666" fill="#4cdda0" font-size="14" font-weight="750">④ 说话人 Embedding</text>
+          <text class="mono" x="782" y="690">prompt_spk_embedding [B, 192]</text>
+
+          <path class="path-muted" d="M710 420 H735 Q747 420 760 389"/>
+          <path class="path-muted" d="M710 470 H760"/>
+          <path class="path-muted" d="M710 539 H760"/>
+          <path class="path-muted" d="M710 606 H735 Q747 606 760 674"/>
+
+          <!-- full tokens go to LLM -->
+          <path class="path-blue" d="M900 350 V300 Q900 278 878 278 H670 Q650 278 650 257"/>
+          <text class="tiny" x="702" y="296">只进入 LLM assistant prefix</text>
+
+          <!-- Flow -->
+          <rect x="1120" y="374" width="390" height="336" rx="22" fill="url(#flowGradient)" stroke="rgba(91,140,255,.58)" stroke-width="2" filter="url(#shadow)"/>
+          <rect x="1146" y="398" width="109" height="27" rx="13" fill="rgba(91,140,255,.2)" stroke="rgba(91,140,255,.45)"/>
+          <text x="1162" y="417" fill="#91afff" font-size="12" font-weight="800">token2wav</text>
+          <text class="title" x="1146" y="461">Flow 声学模型</text>
+          <text class="body" x="1146" y="488">CausalMaskedDiffWithDiT</text>
+
+          <rect x="1146" y="513" width="338" height="43" rx="10" fill="rgba(91,140,255,.11)"/>
+          <circle cx="1167" cy="534" r="11" fill="#5b8cff"/>
+          <text x="1163" y="538" fill="#07111f" font-size="11" font-weight="850">1</text>
+          <text class="mono" x="1190" y="539">target_speech_tokens</text>
+
+          <rect x="1146" y="567" width="338" height="43" rx="10" fill="rgba(56,212,232,.09)"/>
+          <circle cx="1167" cy="588" r="11" fill="#38d4e8"/>
+          <text x="1163" y="592" fill="#07111f" font-size="11" font-weight="850">2</text>
+          <text class="mono" x="1190" y="593">prompt_speech_tokens</text>
+
+          <rect x="1146" y="621" width="338" height="43" rx="10" fill="rgba(255,180,91,.09)"/>
+          <circle cx="1167" cy="642" r="11" fill="#ffb45b"/>
+          <text x="1163" y="646" fill="#07111f" font-size="11" font-weight="850">3</text>
+          <text class="mono" x="1190" y="647">prompt_speech_feat</text>
+
+          <rect x="1146" y="675" width="338" height="43" rx="10" fill="rgba(76,221,160,.09)"/>
+          <circle cx="1167" cy="696" r="11" fill="#4cdda0"/>
+          <text x="1163" y="700" fill="#07111f" font-size="11" font-weight="850">4</text>
+          <text class="mono" x="1190" y="701">prompt_spk_embedding</text>
+
+          <!-- Target token route to flow input 1 -->
+          <path class="path-blue" d="M1090 236 V514 Q1090 534 1110 534 H1146"/>
+          <text x="1102" y="323" fill="#789bff" font-size="13" font-weight="700">① LLM 生成结果</text>
+
+          <path class="path-cyan" d="M1050 486 H1080 Q1100 486 1100 506 V568 Q1100 588 1120 588 H1146"/>
+          <path d="M1050 580 H1088 Q1110 580 1110 602 V622 Q1110 642 1130 642 H1146" fill="none" stroke="#ffb45b" stroke-width="2.4" marker-end="url(#arrow-orange)"/>
+          <path class="path-green" d="M1050 674 H1085 Q1105 674 1105 686 Q1105 696 1125 696 H1146"/>
+
+          <!-- Optional controls -->
+          <rect x="1160" y="737" width="310" height="47" rx="11" fill="rgba(255,113,132,.08)" stroke="rgba(255,113,132,.25)" stroke-dasharray="5 5"/>
+          <text x="1180" y="758" fill="#ff91a0" font-size="12" font-weight="750">流式控制（可选，不属于四个条件）</text>
+          <text class="mono" x="1180" y="777">token_offset · finalize</text>
+          <path class="path-muted" d="M1315 737 V710"/>
+
+          <!-- Acoustic decoding lane -->
+          <rect class="box" filter="url(#shadow)" x="1010" y="816" width="250" height="82" rx="17"/>
+          <text class="title" x="1032" y="848">目标 Mel</text>
+          <text class="mono" x="1032" y="874">[B, 80, M] · FP32</text>
+
+          <rect class="box" filter="url(#shadow)" x="1320" y="816" width="250" height="82" rx="17"/>
+          <text class="title" x="1342" y="848">Causal HiFT</text>
+          <text class="body" x="1342" y="874">Vocoder · Mel → Waveform</text>
+
+          <rect x="1620" y="816" width="60" height="82" rx="17" fill="rgba(76,221,160,.12)" stroke="rgba(76,221,160,.5)" stroke-width="1.5"/>
+          <text x="1634" y="849" fill="#4cdda0" font-size="15" font-weight="800">音频</text>
+          <text x="1631" y="875" fill="#a9d9c5" font-size="11">24 kHz</text>
+
+          <path class="path-blue" d="M1495 710 V788 Q1495 807 1476 807 H1135 Q1116 807 1116 816"/>
+          <path class="path-blue" d="M1260 857 H1320"/>
+          <path class="path-green" d="M1570 857 H1620"/>
+        </svg>
+      </div>
+    </section>
+
+    <section id="flow-inputs">
+      <div class="section-head">
+        <h2>Flow 的四个核心输入</h2>
+        <p>对应当前 <code>forward_token2wav(...)</code> 的四个必需数据张量</p>
+      </div>
+      <div class="input-grid">
+        <article class="input-card" style="--accent: var(--blue)">
+          <span class="number">1</span>
+          <h3>目标语音 Token</h3>
+          <code>target_speech_tokens</code>
+          <p>由 Speech LLM 根据目标文本自回归生成，携带目标内容、发音和高层韵律信息。</p>
+        </article>
+        <article class="input-card" style="--accent: var(--cyan)">
+          <span class="number">2</span>
+          <h3>参考语音 Token</h3>
+          <code>prompt_speech_tokens</code>
+          <p>由参考音频提取，并裁剪到与参考 Mel 严格对齐；为 Flow 提供参考语音上下文。</p>
+        </article>
+        <article class="input-card" style="--accent: var(--orange)">
+          <span class="number">3</span>
+          <h3>参考 Mel</h3>
+          <code>prompt_speech_feat</code>
+          <p>24 kHz、80 维 Mel 特征，以 2:1 的帧数比例和参考 Token 对齐，提供细粒度声学条件。</p>
+        </article>
+        <article class="input-card" style="--accent: var(--green)">
+          <span class="number">4</span>
+          <h3>说话人 Embedding</h3>
+          <code>prompt_spk_embedding</code>
+          <p>CAMPPlus 提取的 192 维说话人向量，提供稳定的身份和音色条件。</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>不要混淆的三层接口</h2>
+        <p>同一个“Flow”在不同代码层看到的输入数量并不相同</p>
+      </div>
+      <div class="layers">
+        <article class="layer" style="--accent: var(--cyan)">
+          <small>01 · Triton token2wav API</small>
+          <h3>4 个核心输入 + 2 个可选控制量</h3>
+          <p>
+            四个数据张量之外，流式推理可附加 <code>token_offset</code> 与
+            <code>finalize</code>。前者用于裁掉已经生成的 Mel，后者标记中间块或最终块。
+          </p>
+        </article>
+        <article class="layer" style="--accent: var(--orange)">
+          <small>02 · flow.inference</small>
+          <h3>内部自动补充长度张量</h3>
+          <p>
+            Python Backend 根据张量 shape 构造 <code>token_len</code>、
+            <code>prompt_token_len</code> 和 <code>prompt_feat_len</code>，调用方不需要上传。
+          </p>
+        </article>
+        <article class="layer" style="--accent: var(--purple)">
+          <small>03 · TensorRT estimator</small>
+          <h3>更底层是 x / mask / mu / cond</h3>
+          <p>
+            这是 Flow decoder estimator 内部的 TensorRT 引擎接口，已经是经过 Flow
+            前处理后的张量，不能当成对外 token2wav 输入来描述。
+          </p>
+        </article>
+      </div>
+      <div class="note">
+        另一个容易漏掉的细节：LLM 使用完整的 <code>prompt_speech_tokens_for_llm</code>；
+        Flow 使用与参考 Mel 对齐后的 <code>prompt_speech_tokens</code>。两者来源相同，但长度不一定相同。
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span>CosyVoice3Pro · Triton BLS → TensorRT-LLM → Flow → Causal HiFT</span>
+      <span>本图对应仓库当前实现，适合浏览器查看、打印或截图。</span>
+    </footer>
+  </main>
+</body>
+</html>

@@ -130,6 +130,13 @@ CosyVoice3Pro 是社区服务化增强版，并非 FunAudioLLM 官方发行版�
 `18100` 仅供容器内部 Gateway 访问。业务开发优先使用 Public API；模型
 调试和平台运维才需要 Advanced API。
 
+### 模型推理链路
+
+[![CosyVoice3Pro Triton 推理链路：Speech LLM、Flow 四输入与 Causal HiFT](docs/assets/inference-pipeline.svg)](docs/inference-pipeline.html)
+
+Flow 接收目标语音 Token、对齐后参考语音 Token、参考 Mel 和说话人
+Embedding 四个核心条件。点击图片可查看张量级说明和流式调度边界。
+
 ## Public API
 
 | 方法 | 地址 | 用途 |

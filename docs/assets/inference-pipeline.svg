@@ -1,0 +1,210 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="1000" viewBox="0 0 1680 1000" role="img" aria-labelledby="title desc">
+  <title id="title">CosyVoice3Pro Triton 推理链路</title>
+  <desc id="desc">文本和完整参考语音 Token 输入 Speech LLM；LLM 生成的目标语音 Token，与对齐后的参考语音 Token、参考 Mel 和说话人 Embedding 一起构成 Flow 的四个核心输入；Flow 输出 Mel，Causal HiFT 输出 24 kHz 音频。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#081827"/>
+      <stop offset="0.55" stop-color="#07111f"/>
+      <stop offset="1" stop-color="#101429"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#142d49"/>
+      <stop offset="1" stop-color="#0c1d31"/>
+    </linearGradient>
+    <linearGradient id="flow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#233b70"/>
+      <stop offset="0.5" stop-color="#1b3358"/>
+      <stop offset="1" stop-color="#132941"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="13" stdDeviation="13" flood-color="#000000" flood-opacity="0.32"/>
+    </filter>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#8fa7c0" stroke-opacity="0.06"/>
+    </pattern>
+    <marker id="blue-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#6d96ff"/>
+    </marker>
+    <marker id="cyan-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#3ed3e7"/>
+    </marker>
+    <marker id="orange-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#ffb45b"/>
+    </marker>
+    <marker id="green-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#4cdda0"/>
+    </marker>
+    <style>
+      text { font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif; }
+      .lane { fill: #71879e; font-size: 13px; font-weight: 800; letter-spacing: 2px; }
+      .box { fill: url(#panel); stroke: #93a8bd; stroke-opacity: .28; stroke-width: 1.5; }
+      .soft { fill: #10243b; stroke: #93a8bd; stroke-opacity: .23; stroke-width: 1.3; }
+      .heading { fill: #f3f7fc; font-size: 21px; font-weight: 760; }
+      .body { fill: #a8bacd; font-size: 14px; font-weight: 500; }
+      .small { fill: #8197ad; font-size: 12px; font-weight: 500; }
+      .code { fill: #deebf7; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; font-weight: 650; }
+      .blue-path { fill: none; stroke: #6d96ff; stroke-width: 2.5; marker-end: url(#blue-arrow); }
+      .cyan-path { fill: none; stroke: #3ed3e7; stroke-width: 2.5; marker-end: url(#cyan-arrow); }
+      .orange-path { fill: none; stroke: #ffb45b; stroke-width: 2.5; marker-end: url(#orange-arrow); }
+      .green-path { fill: none; stroke: #4cdda0; stroke-width: 2.5; marker-end: url(#green-arrow); }
+      .muted-path { fill: none; stroke: #71879e; stroke-width: 1.6; stroke-dasharray: 7 7; }
+    </style>
+  </defs>
+
+  <rect width="1680" height="1000" rx="24" fill="url(#bg)"/>
+  <rect width="1680" height="1000" rx="24" fill="url(#grid)"/>
+  <circle cx="180" cy="0" r="290" fill="#31cfe3" fill-opacity="0.07"/>
+  <circle cx="1540" cy="110" r="330" fill="#aa80ff" fill-opacity="0.07"/>
+
+  <text x="48" y="54" fill="#3ed3e7" font-size="14" font-weight="800" letter-spacing="2.6">COSYVOICE3PRO · TRITON INFERENCE PIPELINE</text>
+  <text x="48" y="99" fill="#f3f7fc" font-size="35" font-weight="800">从文字与声纹条件到 24 kHz 语音波形</text>
+  <text x="48" y="132" fill="#8ea4ba" font-size="15">Speech LLM 生成语音 Token · Flow 接收 4 个核心条件 · Causal HiFT 还原波形</text>
+
+  <line x1="48" y1="168" x2="1632" y2="168" stroke="#91a5ba" stroke-opacity="0.16"/>
+  <text class="lane" x="48" y="198">① TEXT &amp; SPEECH LLM</text>
+
+  <!-- Text context -->
+  <rect class="box" filter="url(#shadow)" x="48" y="222" width="316" height="170" rx="18"/>
+  <rect x="70" y="242" width="92" height="25" rx="12" fill="#3ed3e7" fill-opacity="0.12" stroke="#3ed3e7" stroke-opacity="0.35"/>
+  <text x="87" y="260" fill="#3ed3e7" font-size="12" font-weight="800">文本条件</text>
+  <text class="heading" x="70" y="298">完整文本上下文</text>
+  <text class="body" x="70" y="327">指令 / 画像 Prompt</text>
+  <text class="code" x="70" y="350">&lt;|endofprompt|&gt;</text>
+  <text class="body" x="70" y="376">参考转写 + 目标文本</text>
+
+  <!-- LLM -->
+  <rect class="box" filter="url(#shadow)" x="476" y="222" width="342" height="170" rx="18"/>
+  <rect x="498" y="242" width="122" height="25" rx="12" fill="#a982ff" fill-opacity="0.14" stroke="#a982ff" stroke-opacity="0.4"/>
+  <text x="513" y="260" fill="#bd9eff" font-size="12" font-weight="800">TensorRT-LLM</text>
+  <text class="heading" x="498" y="298">Speech LLM</text>
+  <text class="body" x="498" y="328">User：完整文本上下文</text>
+  <text class="body" x="498" y="354">Assistant prefix：</text>
+  <text class="code" x="498" y="376">完整参考语音 Token</text>
+
+  <!-- Target token -->
+  <rect class="box" filter="url(#shadow)" x="930" y="238" width="286" height="138" rx="18"/>
+  <text class="heading" x="954" y="278">目标语音 Token</text>
+  <text class="code" x="954" y="308">target_speech_tokens</text>
+  <text class="body" x="954" y="338">LLM 自回归生成 · 约 25 token/s</text>
+  <text x="954" y="360" fill="#799cff" font-size="12" font-weight="750">FLOW INPUT ①</text>
+
+  <path class="blue-path" d="M364 307H476"/>
+  <path class="blue-path" d="M818 307H930"/>
+
+  <line x1="48" y1="426" x2="1632" y2="426" stroke="#91a5ba" stroke-opacity="0.16"/>
+  <text class="lane" x="48" y="458">② PROMPT CONDITIONING</text>
+
+  <!-- Prompt sources -->
+  <rect class="box" filter="url(#shadow)" x="48" y="482" width="286" height="292" rx="18"/>
+  <text class="heading" x="70" y="520">提示来源</text>
+  <rect class="soft" x="70" y="545" width="242" height="88" rx="13"/>
+  <circle cx="91" cy="568" r="7" fill="#3ed3e7"/>
+  <text x="108" y="574" fill="#3ed3e7" font-size="14" font-weight="760">即时克隆</text>
+  <text class="body" x="91" y="603">reference_wav · 16 kHz</text>
+  <text class="small" x="91" y="622">现场提取参考特征</text>
+  <rect class="soft" x="70" y="655" width="242" height="92" rx="13"/>
+  <circle cx="91" cy="678" r="7" fill="#4cdda0"/>
+  <text x="108" y="684" fill="#4cdda0" font-size="14" font-weight="760">注册声纹</text>
+  <text class="body" x="91" y="713">speakerId · NPZ / GPU LRU</text>
+  <text class="small" x="91" y="733">直接复用预计算条件</text>
+
+  <!-- Feature resolution -->
+  <rect class="box" filter="url(#shadow)" x="390" y="482" width="314" height="292" rx="18"/>
+  <text class="heading" x="414" y="520">Prompt 条件解析</text>
+  <text class="body" x="414" y="558">Audio Tokenizer</text>
+  <text class="small" x="414" y="579">参考音频 → 离散语音 Token</text>
+  <line x1="414" y1="596" x2="680" y2="596" stroke="#91a5ba" stroke-opacity="0.15"/>
+  <text class="body" x="414" y="627">Mel Extractor</text>
+  <text class="small" x="414" y="648">24 kHz · 80-bin Mel</text>
+  <line x1="414" y1="665" x2="680" y2="665" stroke="#91a5ba" stroke-opacity="0.15"/>
+  <text class="body" x="414" y="696">CAMPPlus</text>
+  <text class="small" x="414" y="717">80-bin FBank → 192-d Embedding</text>
+  <rect x="414" y="733" width="220" height="27" rx="8" fill="#ffb45b" fill-opacity="0.1" stroke="#ffb45b" stroke-opacity="0.25"/>
+  <text x="430" y="752" fill="#ffc076" font-size="12" font-weight="700">Token : Mel = 1 : 2 对齐</text>
+
+  <path class="cyan-path" d="M334 585H390"/>
+  <path class="green-path" d="M334 701H365Q378 701 390 684"/>
+
+  <!-- Prompt outputs -->
+  <rect class="soft" x="758" y="456" width="306" height="68" rx="13"/>
+  <text x="780" y="483" fill="#bd9eff" font-size="14" font-weight="760">LLM 专用完整参考 Token</text>
+  <text class="code" x="780" y="506">prompt_tokens_for_llm</text>
+
+  <rect class="soft" x="758" y="544" width="306" height="68" rx="13"/>
+  <text x="780" y="571" fill="#3ed3e7" font-size="14" font-weight="760">② 对齐后参考语音 Token</text>
+  <text class="code" x="780" y="594">prompt_speech_tokens [B, P]</text>
+
+  <rect class="soft" x="758" y="632" width="306" height="68" rx="13"/>
+  <text x="780" y="659" fill="#ffb45b" font-size="14" font-weight="760">③ 对齐后参考 Mel</text>
+  <text class="code" x="780" y="682">prompt_speech_feat [B, 2P, 80]</text>
+
+  <rect class="soft" x="758" y="720" width="306" height="68" rx="13"/>
+  <text x="780" y="747" fill="#4cdda0" font-size="14" font-weight="760">④ 说话人 Embedding</text>
+  <text class="code" x="780" y="770">prompt_spk_embedding [B, 192]</text>
+
+  <path class="muted-path" d="M704 530H730Q744 530 758 490"/>
+  <path class="muted-path" d="M704 579H758"/>
+  <path class="muted-path" d="M704 642H730Q744 642 758 666"/>
+  <path class="muted-path" d="M704 705H730Q744 705 758 754"/>
+
+  <!-- Full prompt tokens to LLM -->
+  <path class="blue-path" d="M911 456V417Q911 405 899 405H669Q647 405 647 392"/>
+  <text class="small" x="699" y="419">完整 Token，仅进入 LLM prefix</text>
+
+  <!-- Flow -->
+  <rect x="1128" y="448" width="454" height="340" rx="22" fill="url(#flow)" stroke="#6d96ff" stroke-opacity="0.6" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="1154" y="470" width="108" height="26" rx="13" fill="#6d96ff" fill-opacity="0.2" stroke="#6d96ff" stroke-opacity="0.42"/>
+  <text x="1170" y="489" fill="#9bb7ff" font-size="12" font-weight="800">token2wav</text>
+  <text class="heading" x="1154" y="529">Flow 声学模型</text>
+  <text class="body" x="1154" y="553">CausalMaskedDiffWithDiT · 4 个核心输入</text>
+
+  <rect x="1154" y="572" width="402" height="43" rx="10" fill="#6d96ff" fill-opacity="0.11"/>
+  <circle cx="1176" cy="593" r="11" fill="#6d96ff"/>
+  <text x="1173" y="597" fill="#07111f" font-size="11" font-weight="900">1</text>
+  <text class="code" x="1200" y="598">target_speech_tokens</text>
+
+  <rect x="1154" y="625" width="402" height="43" rx="10" fill="#3ed3e7" fill-opacity="0.09"/>
+  <circle cx="1176" cy="646" r="11" fill="#3ed3e7"/>
+  <text x="1173" y="650" fill="#07111f" font-size="11" font-weight="900">2</text>
+  <text class="code" x="1200" y="651">prompt_speech_tokens</text>
+
+  <rect x="1154" y="678" width="402" height="43" rx="10" fill="#ffb45b" fill-opacity="0.09"/>
+  <circle cx="1176" cy="699" r="11" fill="#ffb45b"/>
+  <text x="1173" y="703" fill="#07111f" font-size="11" font-weight="900">3</text>
+  <text class="code" x="1200" y="704">prompt_speech_feat</text>
+
+  <rect x="1154" y="731" width="402" height="43" rx="10" fill="#4cdda0" fill-opacity="0.09"/>
+  <circle cx="1176" cy="752" r="11" fill="#4cdda0"/>
+  <text x="1173" y="756" fill="#07111f" font-size="11" font-weight="900">4</text>
+  <text class="code" x="1200" y="757">prompt_spk_embedding</text>
+
+  <!-- Four routes into Flow -->
+  <path class="blue-path" d="M1073 376V550Q1073 593 1116 593H1154"/>
+  <path class="cyan-path" d="M1064 578H1093Q1110 578 1110 610V626Q1110 646 1130 646H1154"/>
+  <path class="orange-path" d="M1064 666H1100Q1120 666 1120 686Q1120 699 1140 699H1154"/>
+  <path class="green-path" d="M1064 754H1154"/>
+
+  <!-- Acoustic output -->
+  <line x1="48" y1="818" x2="1632" y2="818" stroke="#91a5ba" stroke-opacity="0.16"/>
+  <text class="lane" x="48" y="850">③ ACOUSTIC DECODING</text>
+
+  <rect class="box" filter="url(#shadow)" x="720" y="874" width="252" height="82" rx="17"/>
+  <text class="heading" x="744" y="906">目标 Mel</text>
+  <text class="code" x="744" y="935">[B, 80, M] · FP32</text>
+
+  <rect class="box" filter="url(#shadow)" x="1052" y="874" width="280" height="82" rx="17"/>
+  <text class="heading" x="1076" y="906">Causal HiFT Vocoder</text>
+  <text class="body" x="1076" y="935">Mel → Waveform</text>
+
+  <rect x="1410" y="874" width="178" height="82" rx="17" fill="#4cdda0" fill-opacity="0.12" stroke="#4cdda0" stroke-opacity="0.55" stroke-width="1.5"/>
+  <text x="1436" y="907" fill="#4cdda0" font-size="19" font-weight="800">音频波形</text>
+  <text x="1436" y="935" fill="#aadcc7" font-size="13">24 kHz · mono</text>
+
+  <path class="blue-path" d="M1355 788V842Q1355 858 1339 858H846Q830 858 830 874"/>
+  <path class="blue-path" d="M972 915H1052"/>
+  <path class="green-path" d="M1332 915H1410"/>
+
+  <rect x="68" y="878" width="540" height="66" rx="14" fill="#ff7184" fill-opacity="0.07" stroke="#ff7184" stroke-opacity="0.24" stroke-dasharray="6 6"/>
+  <text x="90" y="905" fill="#ff96a5" font-size="13" font-weight="760">流式控制量，不属于 Flow 的四个声学条件</text>
+  <text class="code" x="90" y="930">token_offset · finalize</text>
+</svg>
