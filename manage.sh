@@ -45,6 +45,14 @@ VOCODER_INSTANCE_COUNT=""
 INFERENCE_CONCURRENCY=""
 SEGMENT_CONCURRENCY=""
 EAGER_CUDA_INIT=""
+FLOW_BATCH_SIZE=""
+FLOW_BATCH_QUEUE_DELAY_US=""
+FLOW_BATCHING_ENABLED=""
+FLOW_PREFERRED_BATCH_SIZES=""
+VOCODER_BATCH_SIZE=""
+VOCODER_BATCH_QUEUE_DELAY_US=""
+VOCODER_BATCHING_ENABLED=""
+VOCODER_PREFERRED_BATCH_SIZES=""
 
 # Git 克隆代理。优先使用专用变量，否则沿用当前 shell 的代理配置。
 GIT_PROXY_URL="${COSYVOICE_GIT_PROXY:-${HTTPS_PROXY:-${HTTP_PROXY:-}}}"
@@ -125,6 +133,10 @@ resolve_performance_config() {
             INFERENCE_CONCURRENCY="${COSYVOICE_TTS_INFERENCE_CONCURRENCY:-12}"
             SEGMENT_CONCURRENCY="${COSYVOICE_TTS_SEGMENT_CONCURRENCY:-2}"
             EAGER_CUDA_INIT="${COSYVOICE_PRO_EAGER_CUDA_INIT:-true}"
+            FLOW_BATCH_SIZE="${COSYVOICE_FLOW_BATCH_SIZE:-${COSYVOICE_ACOUSTIC_BATCH_SIZE:-1}}"
+            FLOW_BATCH_QUEUE_DELAY_US="${COSYVOICE_FLOW_BATCH_QUEUE_DELAY_US:-${COSYVOICE_ACOUSTIC_BATCH_QUEUE_DELAY_US:-0}}"
+            VOCODER_BATCH_SIZE="${COSYVOICE_VOCODER_BATCH_SIZE:-${COSYVOICE_ACOUSTIC_BATCH_SIZE:-1}}"
+            VOCODER_BATCH_QUEUE_DELAY_US="${COSYVOICE_VOCODER_BATCH_QUEUE_DELAY_US:-${COSYVOICE_ACOUSTIC_BATCH_QUEUE_DELAY_US:-0}}"
             ;;
         balanced)
             KV_CACHE_FREE_GPU_MEMORY_FRACTION="${COSYVOICE_KV_CACHE_FRACTION:-0.60}"
@@ -135,6 +147,10 @@ resolve_performance_config() {
             INFERENCE_CONCURRENCY="${COSYVOICE_TTS_INFERENCE_CONCURRENCY:-10}"
             SEGMENT_CONCURRENCY="${COSYVOICE_TTS_SEGMENT_CONCURRENCY:-2}"
             EAGER_CUDA_INIT="${COSYVOICE_PRO_EAGER_CUDA_INIT:-false}"
+            FLOW_BATCH_SIZE="${COSYVOICE_FLOW_BATCH_SIZE:-${COSYVOICE_ACOUSTIC_BATCH_SIZE:-1}}"
+            FLOW_BATCH_QUEUE_DELAY_US="${COSYVOICE_FLOW_BATCH_QUEUE_DELAY_US:-${COSYVOICE_ACOUSTIC_BATCH_QUEUE_DELAY_US:-0}}"
+            VOCODER_BATCH_SIZE="${COSYVOICE_VOCODER_BATCH_SIZE:-${COSYVOICE_ACOUSTIC_BATCH_SIZE:-1}}"
+            VOCODER_BATCH_QUEUE_DELAY_US="${COSYVOICE_VOCODER_BATCH_QUEUE_DELAY_US:-${COSYVOICE_ACOUSTIC_BATCH_QUEUE_DELAY_US:-0}}"
             ;;
         *)
             log_err "COSYVOICE_PERFORMANCE_PROFILE 仅支持 auto、balanced、throughput"
@@ -159,6 +175,62 @@ resolve_performance_config() {
             exit 1
         fi
     done
+
+    case "${FLOW_BATCH_SIZE}" in
+        1)
+            FLOW_BATCHING_ENABLED="false"
+            FLOW_PREFERRED_BATCH_SIZES="1"
+            ;;
+        2)
+            FLOW_BATCHING_ENABLED="true"
+            FLOW_PREFERRED_BATCH_SIZES="2"
+            ;;
+        4)
+            FLOW_BATCHING_ENABLED="true"
+            FLOW_PREFERRED_BATCH_SIZES="2, 4"
+            ;;
+        8)
+            FLOW_BATCHING_ENABLED="true"
+            FLOW_PREFERRED_BATCH_SIZES="2, 4, 8"
+            ;;
+        *)
+            log_err "COSYVOICE_FLOW_BATCH_SIZE 仅支持 1、2、4、8"
+            exit 1
+            ;;
+    esac
+    case "${VOCODER_BATCH_SIZE}" in
+        1)
+            VOCODER_BATCHING_ENABLED="false"
+            VOCODER_PREFERRED_BATCH_SIZES="1"
+            ;;
+        2)
+            VOCODER_BATCHING_ENABLED="true"
+            VOCODER_PREFERRED_BATCH_SIZES="2"
+            ;;
+        4)
+            VOCODER_BATCHING_ENABLED="true"
+            VOCODER_PREFERRED_BATCH_SIZES="2, 4"
+            ;;
+        8)
+            VOCODER_BATCHING_ENABLED="true"
+            VOCODER_PREFERRED_BATCH_SIZES="2, 4, 8"
+            ;;
+        *)
+            log_err "COSYVOICE_VOCODER_BATCH_SIZE 仅支持 1、2、4、8"
+            exit 1
+            ;;
+    esac
+    if ! [[ "${FLOW_BATCH_QUEUE_DELAY_US}" =~ ^[0-9]+$ ]] ||
+       ! [[ "${VOCODER_BATCH_QUEUE_DELAY_US}" =~ ^[0-9]+$ ]]; then
+        log_err "Flow/Vocoder Batch queue delay 必须是非负整数"
+        exit 1
+    fi
+    if [ "${FLOW_BATCH_SIZE}" -eq 1 ]; then
+        FLOW_BATCH_QUEUE_DELAY_US=0
+    fi
+    if [ "${VOCODER_BATCH_SIZE}" -eq 1 ]; then
+        VOCODER_BATCH_QUEUE_DELAY_US=0
+    fi
 
     PERFORMANCE_PROFILE="${resolved_profile}"
     case "${EAGER_CUDA_INIT,,}" in
@@ -493,16 +565,22 @@ bash run_cosyvoice3.sh 0 2
 }
 
 install_model_overrides() {
-    log_step "部署 CosyVoice3Pro 和 Speaker Registry 模型"
+    log_step "部署 CosyVoice3Pro 和声学 Batch 模型"
     resolve_performance_config
 
     local cosyvoice_model_dir="${TRITON_MODEL_OVERRIDES_DIR}/CosyVoice3Pro"
     local registry_model_dir="${TRITON_MODEL_OVERRIDES_DIR}/CosyVoice3ProSpeakerRegistry"
+    local token2wav_model_dir="${TRITON_MODEL_OVERRIDES_DIR}/token2wav"
+    local vocoder_model_dir="${TRITON_MODEL_OVERRIDES_DIR}/vocoder"
 
     if [ ! -f "${cosyvoice_model_dir}/config.pbtxt" ] ||
        [ ! -f "${cosyvoice_model_dir}/1/model.py" ] ||
        [ ! -f "${registry_model_dir}/config.pbtxt" ] ||
-       [ ! -f "${registry_model_dir}/1/model.py" ]; then
+       [ ! -f "${registry_model_dir}/1/model.py" ] ||
+       [ ! -f "${token2wav_model_dir}/config.pbtxt" ] ||
+       [ ! -f "${token2wav_model_dir}/1/model.py" ] ||
+       [ ! -f "${vocoder_model_dir}/config.pbtxt" ] ||
+       [ ! -f "${vocoder_model_dir}/1/model.py" ]; then
         log_err "Triton 模型覆盖文件不完整：${TRITON_MODEL_OVERRIDES_DIR}"
         exit 1
     fi
@@ -512,6 +590,8 @@ set -e
 mkdir -p \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/1' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3ProSpeakerRegistry/1' \
+  '${TRITON_DIR}/model_repo_cosyvoice3_copy/token2wav/1' \
+  '${TRITON_DIR}/model_repo_cosyvoice3_copy/vocoder/1' \
   '${CONTAINER_SPEAKER_STORE_DIR}'
 "
 
@@ -521,6 +601,12 @@ mkdir -p \
     docker cp \
         "${registry_model_dir}/." \
         "${CONTAINER_NAME}:${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3ProSpeakerRegistry/"
+    docker cp \
+        "${token2wav_model_dir}/." \
+        "${CONTAINER_NAME}:${TRITON_DIR}/model_repo_cosyvoice3_copy/token2wav/"
+    docker cp \
+        "${vocoder_model_dir}/." \
+        "${CONTAINER_NAME}:${TRITON_DIR}/model_repo_cosyvoice3_copy/vocoder/"
 
     exec_in_container "
 set -e
@@ -528,8 +614,22 @@ sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${PRO_BLS_INSTANCE_COUNT}/' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/config.pbtxt'
 sed -i -E '/key:[[:space:]]*\"eager_cuda_init\"/,/}/s/string_value:[[:space:]]*\"(true|false)\"/string_value: \"${EAGER_CUDA_INIT}\"/' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/config.pbtxt'
+sed -i -E '/key:[[:space:]]*\"flow_batching_enabled\"/,/}/s/string_value:[[:space:]]*\"(true|false)\"/string_value: \"${FLOW_BATCHING_ENABLED}\"/' \
+  '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/config.pbtxt'
+sed -i -E '/key:[[:space:]]*\"vocoder_batching_enabled\"/,/}/s/string_value:[[:space:]]*\"(true|false)\"/string_value: \"${VOCODER_BATCHING_ENABLED}\"/' \
+  '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/config.pbtxt'
 sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${LEGACY_BLS_INSTANCE_COUNT}/' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/cosyvoice3/config.pbtxt'
+token_config='${TRITON_DIR}/model_repo_cosyvoice3_copy/token2wav/config.pbtxt'
+sed -i -E 's/max_batch_size:[[:space:]]*[0-9]+/max_batch_size: ${FLOW_BATCH_SIZE}/' \"\${token_config}\"
+sed -i -E 's/preferred_batch_size:[[:space:]]*\\[[^]]*\\]/preferred_batch_size: [${FLOW_PREFERRED_BATCH_SIZES}]/' \"\${token_config}\"
+sed -i -E 's/max_queue_delay_microseconds:[[:space:]]*[0-9]+/max_queue_delay_microseconds: ${FLOW_BATCH_QUEUE_DELAY_US}/' \"\${token_config}\"
+vocoder_config='${TRITON_DIR}/model_repo_cosyvoice3_copy/vocoder/config.pbtxt'
+sed -i -E 's/max_batch_size:[[:space:]]*[0-9]+/max_batch_size: ${VOCODER_BATCH_SIZE}/' \"\${vocoder_config}\"
+sed -i -E 's/preferred_batch_size:[[:space:]]*\\[[^]]*\\]/preferred_batch_size: [${VOCODER_PREFERRED_BATCH_SIZES}]/' \"\${vocoder_config}\"
+sed -i -E 's/max_queue_delay_microseconds:[[:space:]]*[0-9]+/max_queue_delay_microseconds: ${VOCODER_BATCH_QUEUE_DELAY_US}/' \"\${vocoder_config}\"
+sed -i -E 's/flow\\.decoder\\.estimator\\.autocast_fp16\\.dynamic_batch\\.[0-9]+\\.plan/flow.decoder.estimator.autocast_fp16.dynamic_batch.${FLOW_BATCH_SIZE}.plan/' \
+  '${TRITON_DIR}/model_repo_cosyvoice3_copy/token2wav/config.pbtxt'
 sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${TOKEN2WAV_INSTANCE_COUNT}/' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/token2wav/config.pbtxt'
 sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${VOCODER_INSTANCE_COUNT}/' \
@@ -538,6 +638,8 @@ sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${VOCODER_INSTANCE_COUNT}/' \
 
     log_ok "模型覆盖文件部署完成"
     log_info "实例配置：Pro BLS=${PRO_BLS_INSTANCE_COUNT}，Legacy BLS=${LEGACY_BLS_INSTANCE_COUNT}，token2wav=${TOKEN2WAV_INSTANCE_COUNT}，vocoder=${VOCODER_INSTANCE_COUNT}，eager CUDA=${EAGER_CUDA_INIT}"
+    log_info "Flow Batch：max=${FLOW_BATCH_SIZE}，preferred=[${FLOW_PREFERRED_BATCH_SIZES}]，queue=${FLOW_BATCH_QUEUE_DELAY_US}us"
+    log_info "Vocoder Batch：max=${VOCODER_BATCH_SIZE}，preferred=[${VOCODER_PREFERRED_BATCH_SIZES}]，queue=${VOCODER_BATCH_QUEUE_DELAY_US}us"
     local mounted_store
     mounted_store="$(docker inspect "${CONTAINER_NAME}" --format \
         '{{range .Mounts}}{{if eq .Destination "/workspace/cosyvoice_speaker_store"}}{{.Source}}{{end}}{{end}}')"
@@ -547,6 +649,44 @@ sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${VOCODER_INSTANCE_COUNT}/' \
         log_warn "当前容器未挂载 Speaker 目录；数据可跨重启保留，但删除容器后会丢失"
         log_info "容器内 Speaker 目录：${CONTAINER_SPEAKER_STORE_DIR}"
     fi
+}
+
+prepare_acoustic_batch_assets() {
+    resolve_performance_config
+
+    if [ "${FLOW_BATCH_SIZE}" -le 1 ]; then
+        log_info "Flow Batch=1，跳过动态 Flow engine 构建"
+        return
+    fi
+
+    local prepare_script="${SCRIPT_DIR}/scripts/prepare_flow_batch.py"
+    if [ ! -f "${prepare_script}" ]; then
+        log_err "缺少动态 Flow 构建脚本：${prepare_script}"
+        exit 1
+    fi
+
+    log_step "准备动态 Batch Flow TensorRT engine"
+    docker exec "${CONTAINER_NAME}" /bin/bash -lc \
+        "mkdir -p '${CONTAINER_WEB_GATEWAY_DIR}/scripts'"
+    docker cp \
+        "${prepare_script}" \
+        "${CONTAINER_NAME}:${CONTAINER_WEB_GATEWAY_DIR}/scripts/prepare_flow_batch.py"
+
+    local opt_batch_size="${FLOW_BATCH_SIZE}"
+    if [ "${opt_batch_size}" -gt 4 ]; then
+        opt_batch_size=4
+    fi
+    exec_in_container "
+set -e
+cd '${COSYVOICE_DIR}'
+export PYTHONPATH='${COSYVOICE_DIR}/third_party/Matcha-TTS':\${PYTHONPATH:-}
+CUDA_VISIBLE_DEVICES=0 python3 \
+  '${CONTAINER_WEB_GATEWAY_DIR}/scripts/prepare_flow_batch.py' \
+  --model-dir '${TRITON_DIR}/Fun-CosyVoice3-0.5B-2512' \
+  --max-batch-size '${FLOW_BATCH_SIZE}' \
+  --opt-batch-size '${opt_batch_size}'
+"
+    log_ok "动态 Batch Flow engine 已就绪"
 }
 
 install_web_gateway() {
@@ -612,6 +752,7 @@ install_service() {
     install_clone_repo
     install_modify_script
     install_compile_triton_model
+    prepare_acoustic_batch_assets
     install_model_overrides
     install_web_gateway
 
@@ -634,6 +775,7 @@ start_service() {
     fi
 
     install_modify_script
+    prepare_acoustic_batch_assets
     install_model_overrides
     if [ "${WEB_GATEWAY_ENABLED}" = "true" ]; then
         install_web_gateway
@@ -749,7 +891,10 @@ for model in CosyVoice3Pro cosyvoice3 token2wav vocoder; do
     config='${TRITON_DIR}/model_repo_cosyvoice3_copy/'\"\${model}\"'/config.pbtxt'
     count=\$(sed -n '/instance_group/,/]/p' \"\${config}\" 2>/dev/null |
         sed -n -E 's/.*count:[[:space:]]*([0-9]+).*/\1/p' | head -n 1)
-    printf '%-30s instances=%s\n' \"\${model}\" \"\${count:-unknown}\"
+    max_batch=\$(sed -n -E 's/^max_batch_size:[[:space:]]*([0-9]+).*/\1/p' \"\${config}\" | head -n 1)
+    queue_delay=\$(sed -n -E 's/.*max_queue_delay_microseconds:[[:space:]]*([0-9]+).*/\1/p' \"\${config}\" | head -n 1)
+    printf '%-30s instances=%s max_batch=%s queue_us=%s\n' \
+        \"\${model}\" \"\${count:-unknown}\" \"\${max_batch:-0}\" \"\${queue_delay:--}\"
 done
 sed -n '/key:[[:space:]]*\"eager_cuda_init\"/,/}/p' \
     '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/config.pbtxt' |

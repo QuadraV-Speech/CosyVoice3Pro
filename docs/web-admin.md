@@ -134,7 +134,9 @@ bash manage.sh restart
 
 默认 `COSYVOICE_PERFORMANCE_PROFILE=auto`。80GB GPU 自动启用双
 token2wav、双 vocoder 的 `throughput` profile，其他 GPU 使用保守的
-`balanced` profile。
+`balanced` profile。声学模型保持 Batch 1；实验性的 Flow/Vocoder 动态
+Batch 需显式开启，变量、首次 TensorRT 构建和 A/B 方法见
+[性能基准文档](benchmark.md#声学动态-batch实验)。
 
 手动切换并重启：
 

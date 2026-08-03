@@ -86,6 +86,20 @@ class TritonPythonModel:
         self.speaker_cache = OrderedDict()
         self.eager_cuda_init = (
             model_params.get("eager_cuda_init", "false").lower() == "true")
+        legacy_batching = model_params.get(
+            "acoustic_batching_enabled", "false").lower() == "true"
+        self.flow_batching_enabled = (
+            model_params.get(
+                "flow_batching_enabled", str(legacy_batching)).lower()
+            == "true")
+        self.vocoder_batching_enabled = (
+            model_params.get(
+                "vocoder_batching_enabled", str(legacy_batching)).lower()
+            == "true")
+        self.acoustic_token_bucket_size = max(
+            1, int(model_params.get("acoustic_token_bucket_size", "64")))
+        self.acoustic_mel_bucket_size = max(
+            1, int(model_params.get("acoustic_mel_bucket_size", "128")))
         if self.eager_cuda_init:
             # Without this, every Python backend instance creates its CUDA
             # context during the first concurrent burst after a restart.
@@ -95,7 +109,39 @@ class TritonPythonModel:
         self.logger.log_info(
             f"CosyVoice3 speaker store={self.speaker_store_dir}, "
             f"cache_max_entries={self.speaker_cache_max_entries}, "
-            f"eager_cuda_init={self.eager_cuda_init}")
+            f"eager_cuda_init={self.eager_cuda_init}, "
+            f"flow_batching={self.flow_batching_enabled}, "
+            f"vocoder_batching={self.vocoder_batching_enabled}, "
+            f"token_bucket={self.acoustic_token_bucket_size}, "
+            f"mel_bucket={self.acoustic_mel_bucket_size}")
+
+    @staticmethod
+    def _round_up(value, quantum):
+        return ((value + quantum - 1) // quantum) * quantum
+
+    @staticmethod
+    def _pad_last_dim(tensor, target_length):
+        current_length = tensor.shape[-1]
+        if current_length > target_length:
+            raise ValueError(
+                f"cannot pad length {current_length} to smaller target "
+                f"{target_length}")
+        if current_length == target_length:
+            return tensor.contiguous()
+        return torch.nn.functional.pad(
+            tensor, (0, target_length - current_length)).contiguous()
+
+    @staticmethod
+    def _pad_time_dim(tensor, target_length):
+        current_length = tensor.shape[1]
+        if current_length > target_length:
+            raise ValueError(
+                f"cannot pad length {current_length} to smaller target "
+                f"{target_length}")
+        if current_length == target_length:
+            return tensor.contiguous()
+        return torch.nn.functional.pad(
+            tensor, (0, 0, 0, target_length - current_length)).contiguous()
 
     def _convert_speech_tokens_to_str(self, speech_tokens):
         """Convert speech token IDs tensor/list to string like '<|s_N|>'."""
@@ -225,16 +271,52 @@ class TritonPythonModel:
                                 request_id, token_offset=None, finalize=True,
                                 priority=100):
         """Async BLS call to token2wav (flow-only). Returns mel tensor."""
+        target_length = int(target_speech_tokens.shape[-1])
+        prompt_token_length = int(prompt_speech_tokens.shape[-1])
+        prompt_feat_length = int(prompt_speech_feat.shape[1])
+
+        if self.flow_batching_enabled and token_offset is None:
+            target_bucket = self._round_up(
+                target_length, self.acoustic_token_bucket_size)
+            prompt_token_bucket = self._round_up(
+                prompt_token_length, self.acoustic_token_bucket_size)
+            # Prompt Token and Mel remain aligned at the model's 1:2 ratio.
+            prompt_feat_bucket = max(
+                prompt_feat_length, prompt_token_bucket * self.token_mel_ratio)
+            target_speech_tokens = self._pad_last_dim(
+                target_speech_tokens, target_bucket)
+            prompt_speech_tokens = self._pad_last_dim(
+                prompt_speech_tokens, prompt_token_bucket)
+            prompt_speech_feat = self._pad_time_dim(
+                prompt_speech_feat, prompt_feat_bucket)
+
         target_tokens_pb = pb_utils.Tensor.from_dlpack(
             "target_speech_tokens", to_dlpack(target_speech_tokens))
+        target_len_pb = pb_utils.Tensor(
+            "target_speech_tokens_len",
+            np.array([[target_length]], dtype=np.int32))
         prompt_tokens_pb = pb_utils.Tensor.from_dlpack(
             "prompt_speech_tokens", to_dlpack(prompt_speech_tokens))
+        prompt_token_len_pb = pb_utils.Tensor(
+            "prompt_speech_tokens_len",
+            np.array([[prompt_token_length]], dtype=np.int32))
         prompt_feat_pb = pb_utils.Tensor.from_dlpack(
             "prompt_speech_feat", to_dlpack(prompt_speech_feat))
+        prompt_feat_len_pb = pb_utils.Tensor(
+            "prompt_speech_feat_len",
+            np.array([[prompt_feat_length]], dtype=np.int32))
         prompt_emb_pb = pb_utils.Tensor.from_dlpack(
             "prompt_spk_embedding", to_dlpack(prompt_spk_embedding))
 
-        inputs = [target_tokens_pb, prompt_tokens_pb, prompt_feat_pb, prompt_emb_pb]
+        inputs = [
+            target_tokens_pb,
+            target_len_pb,
+            prompt_tokens_pb,
+            prompt_token_len_pb,
+            prompt_feat_pb,
+            prompt_feat_len_pb,
+            prompt_emb_pb,
+        ]
 
         if token_offset is not None:
             inputs.append(pb_utils.Tensor("token_offset",
@@ -261,14 +343,21 @@ class TritonPythonModel:
         """Async BLS call to vocoder. Returns speech tensor."""
         if mel.dim() == 2:
             mel = mel.unsqueeze(0)  # [80, T] -> [1, 80, T]
+        mel_length = int(mel.shape[-1])
+        if self.vocoder_batching_enabled and finalize:
+            mel_bucket = self._round_up(
+                mel_length, self.acoustic_mel_bucket_size)
+            mel = self._pad_last_dim(mel, mel_bucket)
         mel_pb = pb_utils.Tensor.from_dlpack("mel", to_dlpack(mel.float()))
+        mel_len_pb = pb_utils.Tensor(
+            "mel_len", np.array([[mel_length]], dtype=np.int32))
         finalize_pb = pb_utils.Tensor("finalize",
                       np.array([[finalize]], dtype=np.bool_))
 
         inference_request = pb_utils.InferenceRequest(
             model_name='vocoder',
             requested_output_names=['tts_speech'],
-            inputs=[mel_pb, finalize_pb],
+            inputs=[mel_pb, mel_len_pb, finalize_pb],
         )
 
         inference_response = await inference_request.async_exec()

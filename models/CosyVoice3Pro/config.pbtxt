@@ -40,6 +40,30 @@ parameters [
     value: {
       string_value: "false"
     }
+  },
+  {
+    key: "flow_batching_enabled"
+    value: {
+      string_value: "false"
+    }
+  },
+  {
+    key: "vocoder_batching_enabled"
+    value: {
+      string_value: "false"
+    }
+  },
+  {
+    key: "acoustic_token_bucket_size"
+    value: {
+      string_value: "64"
+    }
+  },
+  {
+    key: "acoustic_mel_bucket_size"
+    value: {
+      string_value: "128"
+    }
   }
 ]
 

@@ -53,6 +53,42 @@ JSON 结果中的 `request_rtf_average` 是逐请求
 `throughput` Profile 同时扩展两个阶段。模型生成步数、采样参数和音频后处理
 保持不变。
 
+### 声学动态 Batch（实验）
+
+CosyVoice3Pro 已实现离线 Flow 与 Vocoder 的 Triton 动态组批：BLS 先按固定
+Token/Mel bucket 补齐请求，同时传递真实长度；后端组批推理后再按真实长度
+拆分输出。Flow 还会把业务 Batch `B` 展开为 CFG Batch `2B`，使用基于官方
+选择性混合精度 ONNX 构建的动态 TensorRT engine。流式请求自动走 Batch 1
+兼容路径。
+
+这项能力默认关闭。A100-SXM4-80GB 的受控验证中，Flow Batch 2/4 的动态
+engine 执行上下文和单请求耗时都明显高于两个静态 Batch 1 engine；真实 HTTP
+请求又会因 LLM 完成时间错开而难以稳定组批。强行开启会增加显存并降低端到端
+吞吐。官方 L20 的“离线流水线 Batch”与这里的独立 HTTP 请求动态组批不是同一
+工作负载，不能直接套用。
+
+需要在自己的固定流量上实验时可显式开启：
+
+```bash
+COSYVOICE_PERFORMANCE_PROFILE=throughput \
+COSYVOICE_FLOW_BATCH_SIZE=2 \
+COSYVOICE_FLOW_BATCH_QUEUE_DELAY_US=5000 \
+COSYVOICE_VOCODER_BATCH_SIZE=4 \
+COSYVOICE_VOCODER_BATCH_QUEUE_DELAY_US=2000 \
+  bash manage.sh restart
+```
+
+首次启用 Flow Batch 会在模型目录生成对应 GPU 的动态 TensorRT engine；后续
+重启直接复用。建议同时对照 `/v2/models/token2wav/stats` 和
+`/v2/models/vocoder/stats` 中的 `batch_stats`、队列时间、端到端系统 RTF 与
+显存，确认 Batch 2/4 确实发生且带来正收益。恢复安全默认值：
+
+```bash
+COSYVOICE_FLOW_BATCH_SIZE=1 \
+COSYVOICE_VOCODER_BATCH_SIZE=1 \
+  bash manage.sh restart
+```
+
 ## A100 受控 A/B
 
 这是“上游默认核心参数”和 CosyVoice3Pro `throughput` Profile 在同一台
@@ -214,6 +250,10 @@ COSYVOICE_TTS_SEGMENT_CONCURRENCY=2 \
 - `COSYVOICE_LEGACY_BLS_INSTANCES`
 - `COSYVOICE_TOKEN2WAV_INSTANCES`
 - `COSYVOICE_VOCODER_INSTANCES`
+- `COSYVOICE_FLOW_BATCH_SIZE`（`1`、`2`、`4`、`8`，默认 `1`）
+- `COSYVOICE_FLOW_BATCH_QUEUE_DELAY_US`
+- `COSYVOICE_VOCODER_BATCH_SIZE`（`1`、`2`、`4`、`8`，默认 `1`）
+- `COSYVOICE_VOCODER_BATCH_QUEUE_DELAY_US`
 - `COSYVOICE_TTS_INFERENCE_CONCURRENCY`
 - `COSYVOICE_TTS_SEGMENT_CONCURRENCY`
 - `COSYVOICE_PRO_EAGER_CUDA_INIT`

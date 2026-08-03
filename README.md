@@ -101,6 +101,8 @@ CosyVoice3Pro 是社区服务化增强版，并非 FunAudioLLM 官方发行版�
 | A100-SXM4-80GB | 24 | 48/48 | 6.72s | 8.18s | **0.0331** | 30.19x |
 
 完整变量、口径和复现命令见[性能基准文档](docs/benchmark.md)。
+Flow/Vocoder 动态 Batch 已提供实验开关；A100 默认仍采用实测更快、更省显存
+的静态 Batch 1 双实例配置。
 
 ## 系统架构
 
