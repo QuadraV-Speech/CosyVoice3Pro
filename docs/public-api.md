@@ -19,6 +19,7 @@ http://127.0.0.1:18000
 | `GET` | `/speakers/{speakerId}` | 查询一个声纹 |
 | `DELETE` | `/speakers/{speakerId}` | 删除一个声纹 |
 | `POST` | `/tts/` | 生成处理后的音频 |
+| `POST` | `/tts/stream` | SSE 在线流式合成与播报 |
 
 Web 管理后台也只使用这些对外 API。
 
@@ -81,11 +82,12 @@ curl --fail-with-body \
 {
   "status": "ok",
   "service": "CosyVoice3Pro Web Gateway",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "gatewayReady": true,
   "tritonReady": true,
   "models": {
     "ttsReady": true,
+    "streamingTtsReady": true,
     "speakerRegistryReady": true
   }
 }
@@ -371,7 +373,105 @@ Server-Timing: inference、encode 与 total 分阶段耗时
 
 建议始终使用 curl 的 `--output` 保存响应。
 
-## 8. Web 管理后台
+## 8. SSE 在线流式合成
+
+```text
+POST /tts/stream
+Accept: text/event-stream
+Content-Type: multipart/form-data
+```
+
+接口不等待完整音频：Speech LLM 产生足够的语音 Token 后，Flow 与 Vocoder
+立即生成首段波形，Gateway 持续做语速、音量和 16kHz 重采样，再通过 SSE
+返回 Base64 PCM。它支持与 `/tts/` 相同的三种声音来源和 `prompt` 覆盖规则。
+
+### 8.1 参数
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `text` | string | 是 | 无 | 合成文本，在线模式最多 1000 字符 |
+| `speakerId` | string | 否 | 无 | 已注册声纹；兼容 `speaker_id` |
+| `prompt` | string | 否 | 空 | 本次画像覆盖，最多 512 字 |
+| `speed` | enum | 否 | `balanced` | `low`、`balanced`、`fast` |
+| `volume` | enum | 否 | `middle` | `small`、`middle`、`large` |
+| `tts_style` | int | 否 | `1` | 未传 Speaker 和参考音频时使用内置声音 |
+| `prompt_audio` | file | 否 | 无 | 即时克隆参考音频 |
+| `prompt_text` | string | 条件必填 | 无 | 上传 `prompt_audio` 时必填 |
+
+流式输出固定为 16kHz、单声道、little-endian signed 16-bit PCM，不能通过
+`output_format` 修改。`max_chars` 也不适用于在线模式，因为拆成多个完整请求
+会破坏连续的首包与播放语义。
+
+### 8.2 查看原始 SSE
+
+`-N/--no-buffer` 很重要，否则 curl 可能缓冲事件：
+
+```bash
+curl --fail-with-body -N --no-buffer \
+  -X POST "http://127.0.0.1:18000/tts/stream" \
+  -H "Accept: text/event-stream" \
+  -F "text=你好，这段声音会在生成时立即开始播放。" \
+  -F "speakerId=narrator_01" \
+  -F "prompt=请用自然、清晰的语气说话。" \
+  -F "speed=balanced" \
+  -F "volume=middle"
+```
+
+Linux 上可将 SSE 音频事件直接送入 `ffplay` 在线播放（需要 `jq`、
+`coreutils` 和 FFmpeg）：
+
+```bash
+curl --fail-with-body -sS -N --no-buffer \
+  -X POST "http://127.0.0.1:18000/tts/stream" \
+  -F "text=你好，这是 curl 驱动的 SSE 在线播报。" \
+  -F "speakerId=narrator_01" \
+  -F "speed=balanced" \
+  -F "volume=middle" \
+| awk '/^data: / { sub(/^data: /, ""); print }' \
+| jq -r 'select(.audio != null) | .audio' \
+| base64 --decode \
+| ffplay -loglevel error -nodisp -autoexit \
+    -f s16le -ar 16000 -ac 1 -
+```
+
+### 8.3 SSE 事件
+
+```text
+event: meta
+data: {"requestId":"...","encoding":"pcm_s16le","sampleRate":16000,"channels":1}
+
+id: 0
+event: audio
+data: {"seq":0,"samples":3200,"audio":"Base64 PCM..."}
+
+event: done
+data: {"chunks":18,"samples":57600,"durationSeconds":3.6,"firstAudioMs":620.4,"totalMs":910.2}
+```
+
+事件含义：
+
+- `meta`：一次请求的声音来源、编码、采样率、语速和音量
+- `audio`：可立即播放的 PCM 分块，`seq` 从 0 递增
+- `done`：总分块、音频时长、服务端首包和总生成耗时
+- `error`：响应开始后的推理错误；收到后应停止播放并展示 `detail`
+- `: keep-alive`：长时间没有音频时的 SSE 注释心跳
+
+由于接口为带表单请求体的 `POST`，浏览器应使用 `fetch()` 加
+`response.body.getReader()`，而不是只支持 GET 的原生 `EventSource`。
+客户端断开连接时，Gateway 会取消对应 gRPC 推理和 FFmpeg 子进程。
+
+### 8.4 即时参考音频流式合成
+
+```bash
+curl --fail-with-body -N --no-buffer \
+  -X POST "http://127.0.0.1:18000/tts/stream" \
+  -F "text=这是不注册声纹的即时流式克隆。" \
+  -F "prompt_audio=@./reference.wav;type=audio/wav" \
+  -F "prompt_text=参考音频中实际说出的准确文本。" \
+  -F "prompt=请用温柔、舒缓的语气说话。"
+```
+
+## 9. Web 管理后台
 
 浏览器访问：
 
@@ -379,10 +479,10 @@ Server-Timing: inference、encode 与 total 分阶段耗时
 http://服务器地址:18000/
 ```
 
-页面通过本文件中的对外 API 完成健康检查、声纹查询、注册、删除和 TTS，
-不直接调用内部 Triton `/v2/*`。
+页面通过本文件中的对外 API 完成健康检查、声纹查询、注册、删除、完整音频
+合成和 SSE 在线播报，不直接调用内部 Triton `/v2/*`。
 
-## 9. 安全建议
+## 10. 安全建议
 
 对外 API 默认没有应用层登录认证。公网开放前应在反向代理或 API Gateway
 中配置：

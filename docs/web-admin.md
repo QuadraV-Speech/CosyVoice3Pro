@@ -18,7 +18,7 @@ http://服务器地址:18000/v2/
 
 | 端口 | 用途 |
 | --- | --- |
-| `18000` | Web 管理后台、声纹注册、统一 TTS 和 Triton HTTP Gateway |
+| `18000` | Web 管理后台、声纹注册、离线/流式 TTS 和 Triton HTTP Gateway |
 | `18001` | Triton gRPC |
 | `18002` | Triton Metrics |
 
@@ -36,6 +36,7 @@ http://服务器地址:18000/v2/
        |              | /register   |
        |              | /speakers   |
        |              | /tts/       |
+       |              | /tts/stream |
        v              v             v
   静态管理网页      业务 API     Triton HTTP :18100
                                |
@@ -62,6 +63,7 @@ http://服务器地址:18000/v2/
 - 配置长文本分段字符数
 - 选择 PCM、MP3、WAV、AAC、M4A、Opus、OGG、FLAC、WebM
 - 在线试听并下载处理后的 16kHz 音频
+- SSE 边生成边播放，可随时停止并在完成后下载 WAV
 - 删除 Speaker
 
 浏览器上传的提示音频建议为 3～10 秒清晰单人声，服务端约束为
@@ -128,6 +130,7 @@ bash manage.sh restart
 - `/register` 不再提供对外声纹注册
 - `/speakers` 不再提供对外声纹查询和删除
 - `/tts/` 不再提供音频流接口
+- `/tts/stream` 不再提供 SSE 在线播报
 - `18001` 和 `18002` 不变
 
 ## 7. 并发性能配置
@@ -153,6 +156,17 @@ COSYVOICE_PERFORMANCE_PROFILE=balanced \
 `/tts/` 会返回 `Server-Timing`、`X-CosyVoice-Inference-Ms` 和
 `X-CosyVoice-Encode-Ms`，可用于区分模型排队和音频编码耗时。实例数、
 显存参数、压力测试和调优方法见[性能基准文档](benchmark.md)。
+
+流式并发默认与独立 Decoupled BLS 实例数一致，均为 2。可按显存和在线
+请求比例调整并重启：
+
+```bash
+COSYVOICE_STREAMING_BLS_INSTANCES=4 \
+COSYVOICE_TTS_STREAMING_CONCURRENCY=4 \
+  bash manage.sh restart
+```
+
+`COSYVOICE_TTS_STREAM_TIMEOUT_SECONDS` 控制单条 gRPC 流超时，默认 300 秒。
 
 ## 8. 仓库结构
 

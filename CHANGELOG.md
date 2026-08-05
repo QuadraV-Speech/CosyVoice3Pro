@@ -2,6 +2,25 @@
 
 All notable project changes are documented here.
 
+## [1.7.0] - 2026-08-05
+
+### Added
+
+- Public `POST /tts/stream` SSE interface with `meta`, incremental `audio`,
+  `done`, and in-stream `error` events.
+- Dedicated `CosyVoice3ProStreaming` Triton Decoupled model with configurable
+  instances and Gateway concurrency.
+- Web-console online playback that decodes PCM chunks as they arrive, supports
+  cancellation, and provides a completed WAV download.
+- Streaming speed, volume, resampling, disconnect cancellation, keepalive, and
+  first-audio timing.
+
+### Changed
+
+- Aggregate health now includes the streaming model readiness state.
+- Public, advanced, operations, Chinese, and English documentation now cover
+  the online SSE path and runnable curl examples.
+
 ## [1.6.1] - 2026-07-29
 
 ### Added
@@ -71,6 +90,7 @@ All notable project changes are documented here.
 - Per-speaker default Prompt persona and per-request override.
 - Server-side speed, volume, chunking, and audio-format post-processing.
 
+[1.7.0]: https://github.com/QuadraV-Speech/CosyVoice3Pro/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/QuadraV-Speech/CosyVoice3Pro/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/QuadraV-Speech/CosyVoice3Pro/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/QuadraV-Speech/CosyVoice3Pro/compare/v1.5.0...v1.5.1

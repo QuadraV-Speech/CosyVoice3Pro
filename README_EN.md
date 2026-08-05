@@ -46,7 +46,7 @@ request `prompt` temporarily overrides the speaker's default persona.
 | Prompt | Client assembles reference text/instructions | **Stored default with request override** |
 | I/O | Client prepares Tensors and processes waveform | **File/URL registration, chunking, speed, volume, nine formats** |
 | Operations | Native Triton capabilities | **Same-port Web, health, timing headers, automatic profiles** |
-| Advanced | Decoupled streaming and Metrics | **Retained; Public `/tts/` currently returns complete audio** |
+| Streaming | Advanced gRPC Decoupled calls | **Public SSE, browser playback while generating, curl-ready** |
 
 CosyVoice3Pro is a community serving enhancement, not an official FunAudioLLM
 distribution.
@@ -114,7 +114,8 @@ See the full [benchmark methodology and reproduction command](docs/benchmark.md)
  │          CosyVoice3Pro Gateway              │
  │                                             │
  │ Public API                                  │
- │ /health · /register · /speakers · /tts/     │
+ │ /health · /register · /speakers             │
+ │ /tts/ · /tts/stream (SSE)                   │
  │       ▲                                     │
  │       └──────── Web console uses the same API│
  │                                             │
@@ -122,6 +123,7 @@ See the full [benchmark methodology and reproduction command](docs/benchmark.md)
  │ /v2/* ───────────────► Triton HTTP :18100   │
  └──────────────────────────┬──────────────────┘
                             ├── CosyVoice3Pro
+                            ├── CosyVoice3ProStreaming
                             ├── Speaker Registry
                             └── upstream cosyvoice3
 
@@ -159,6 +161,7 @@ Web console: `http://SERVER_IP:18000/`
 | `GET` | `/speakers/{speakerId}` | Inspect one speaker |
 | `DELETE` | `/speakers/{speakerId}` | Delete one speaker |
 | `POST` | `/tts/` | Synthesize and return processed audio |
+| `POST` | `/tts/stream` | Generate and play incrementally over SSE |
 | `GET` | `/` | Web console |
 
 ### Register from an audio URL
@@ -201,6 +204,21 @@ Prompt resolution:
 
 See the full [Public API documentation](docs/public-api.md) for file upload,
 built-in voices, raw prompt audio, speaker deletion, and all parameters.
+
+### Online SSE playback
+
+```bash
+curl --fail-with-body -N --no-buffer \
+  -X POST "http://127.0.0.1:18000/tts/stream" \
+  -F "text=This audio is returned while it is being generated." \
+  -F "speakerId=common_speaker_1" \
+  -F "prompt=Speak naturally and clearly."
+```
+
+The response contains `meta → audio × N → done` events. Each `audio` event
+carries Base64-encoded 16 kHz mono PCM. The Web console decodes and schedules
+chunks immediately; see the [Public API documentation](docs/public-api.md)
+for a curl-to-ffplay example.
 
 ## Operations
 

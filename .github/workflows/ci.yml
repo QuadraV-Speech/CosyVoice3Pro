@@ -28,10 +28,12 @@ jobs:
           python -m py_compile \
             gateway/app.py \
             gateway/legacy_tts.py \
+            gateway/streaming_tts.py \
             gateway/speaker_registration.py \
             gateway/tts_utils.py \
             scripts/client.py \
-            scripts/benchmark.py
+            scripts/benchmark.py \
+            models/CosyVoice3ProStreaming/1/model.py
 
       - name: Check browser JavaScript
         run: node --check gateway/web/app.js

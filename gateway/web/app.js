@@ -4,6 +4,7 @@ const state = {
   speakers: [],
   selectedAudioFile: null,
   audioUrl: null,
+  streamSession: null,
 };
 
 const elements = {
@@ -28,6 +29,7 @@ const elements = {
   synthesisMaxChars: document.querySelector("#synthesis-max-chars"),
   synthesisForm: document.querySelector("#synthesis-form"),
   generateButton: document.querySelector("#generate-button"),
+  streamButton: document.querySelector("#stream-button"),
   resultState: document.querySelector("#result-state"),
   emptyOutput: document.querySelector("#empty-output"),
   audioResult: document.querySelector("#audio-result"),
@@ -36,6 +38,8 @@ const elements = {
   resultDuration: document.querySelector("#result-duration"),
   resultFormat: document.querySelector("#result-format"),
   resultLatency: document.querySelector("#result-latency"),
+  outputSampleRate: document.querySelector("#output-sample-rate"),
+  outputTransport: document.querySelector("#output-transport"),
   waveVisual: document.querySelector("#wave-visual"),
   waveBars: document.querySelector("#wave-bars"),
   speakerSearch: document.querySelector("#speaker-search"),
@@ -142,6 +146,7 @@ async function refreshHealth() {
     modelReady = Boolean(
       info.models
       && info.models.ttsReady
+      && info.models.streamingTtsReady
       && info.models.speakerRegistryReady,
     );
   } catch {
@@ -293,6 +298,313 @@ function buildWaveBars() {
   elements.waveBars.append(fragment);
 }
 
+function decodeBase64Pcm(encoded) {
+  const binary = window.atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  if (bytes.byteLength % 2 !== 0) {
+    throw new Error("服务返回了不完整的 PCM 采样");
+  }
+  return bytes;
+}
+
+function createWavBlob(pcmChunks, sampleRate) {
+  const dataLength = pcmChunks.reduce(
+    (total, chunk) => total + chunk.byteLength,
+    0,
+  );
+  const header = new ArrayBuffer(44);
+  const view = new DataView(header);
+  const writeText = (offset, text) => {
+    for (let index = 0; index < text.length; index += 1) {
+      view.setUint8(offset + index, text.charCodeAt(index));
+    }
+  };
+  writeText(0, "RIFF");
+  view.setUint32(4, 36 + dataLength, true);
+  writeText(8, "WAVE");
+  writeText(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeText(36, "data");
+  view.setUint32(40, dataLength, true);
+  return new Blob([header, ...pcmChunks], { type: "audio/wav" });
+}
+
+async function consumeSse(body, onEvent) {
+  if (!body) throw new Error("浏览器未收到可读取的 SSE 响应体");
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const dispatch = async (block) => {
+    if (!block || block.startsWith(":")) return;
+    let eventName = "message";
+    const dataLines = [];
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith("event:")) {
+        eventName = line.slice(6).trim();
+      } else if (line.startsWith("data:")) {
+        dataLines.push(line.slice(5).trimStart());
+      }
+    }
+    if (!dataLines.length) return;
+    let payload;
+    try {
+      payload = JSON.parse(dataLines.join("\n"));
+    } catch {
+      throw new Error(`无法解析 SSE ${eventName} 事件`);
+    }
+    await onEvent(eventName, payload);
+  };
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary !== -1) {
+        const block = buffer.slice(0, boundary).replaceAll("\r", "");
+        buffer = buffer.slice(boundary + 2);
+        await dispatch(block);
+        boundary = buffer.indexOf("\n\n");
+      }
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) await dispatch(buffer.trim());
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function schedulePcm(session, pcmBytes) {
+  const sampleCount = pcmBytes.byteLength / 2;
+  const audioBuffer = session.audioContext.createBuffer(
+    1,
+    sampleCount,
+    session.sampleRate,
+  );
+  const channel = audioBuffer.getChannelData(0);
+  const pcmView = new DataView(
+    pcmBytes.buffer,
+    pcmBytes.byteOffset,
+    pcmBytes.byteLength,
+  );
+  for (let index = 0; index < sampleCount; index += 1) {
+    channel[index] = pcmView.getInt16(index * 2, true) / 32768;
+  }
+
+  const source = session.audioContext.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(session.audioContext.destination);
+  const startAt = Math.max(
+    session.nextPlaybackAt,
+    session.audioContext.currentTime + 0.055,
+  );
+  source.start(startAt);
+  session.nextPlaybackAt = startAt + audioBuffer.duration;
+  session.sources.add(source);
+  source.addEventListener("ended", () => session.sources.delete(source), {
+    once: true,
+  });
+}
+
+function setStreamingButton(active) {
+  elements.streamButton.classList.toggle("is-streaming", active);
+  elements.streamButton.querySelector(".button-label").textContent = active
+    ? "停止在线播报"
+    : "流式在线播报";
+}
+
+function cancelStreaming(showStatus = true) {
+  const session = state.streamSession;
+  if (!session || session.cancelled) return;
+  session.cancelled = true;
+  session.controller.abort();
+  for (const source of session.sources) {
+    try {
+      source.stop();
+    } catch {
+      // The source may already have ended.
+    }
+  }
+  session.sources.clear();
+  session.audioContext.close().catch(() => {});
+  elements.waveVisual.classList.remove("is-playing");
+  if (showStatus) {
+    elements.resultState.textContent = "播报已停止";
+    toast("在线播报已停止", "已取消服务端推理和浏览器播放队列。", "error");
+  }
+}
+
+async function streamSynthesize() {
+  if (state.streamSession) {
+    cancelStreaming(true);
+    return;
+  }
+  if (!elements.synthesisForm.reportValidity()) return;
+
+  const speakerId = elements.speakerSelect.value;
+  const targetText = elements.targetText.value.trim();
+  const prompt = elements.requestPrompt.value.trim();
+  if (!speakerId || !targetText) {
+    toast("缺少合成参数", "请选择声纹并输入合成文本。", "error");
+    return;
+  }
+
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) {
+    toast("浏览器不支持在线播报", "当前浏览器缺少 Web Audio API。", "error");
+    return;
+  }
+
+  const session = {
+    controller: new AbortController(),
+    audioContext: new AudioContextClass(),
+    sources: new Set(),
+    chunks: [],
+    sampleRate: 16000,
+    nextPlaybackAt: 0,
+    cancelled: false,
+    done: null,
+    firstAudioAt: null,
+  };
+  state.streamSession = session;
+  try {
+    await session.audioContext.resume();
+  } catch (error) {
+    state.streamSession = null;
+    await session.audioContext.close().catch(() => {});
+    toast("无法启动音频设备", error.message, "error");
+    return;
+  }
+  session.nextPlaybackAt = session.audioContext.currentTime;
+  setStreamingButton(true);
+  elements.generateButton.disabled = true;
+  elements.resultState.textContent = "连接流式服务";
+  elements.resultState.classList.remove("is-ready");
+  elements.audioPlayer.pause();
+  elements.outputSampleRate.textContent = "16 kHz";
+  elements.outputTransport.textContent = "SSE · PCM";
+  const startedAt = performance.now();
+
+  try {
+    const formData = new FormData();
+    formData.append("text", targetText);
+    formData.append("speakerId", speakerId);
+    formData.append("prompt", prompt);
+    formData.append("speed", elements.synthesisSpeed.value);
+    formData.append("volume", elements.synthesisVolume.value);
+
+    const response = await fetch("/tts/stream", {
+      method: "POST",
+      body: formData,
+      signal: session.controller.signal,
+      headers: { Accept: "text/event-stream" },
+    });
+    if (!response.ok) {
+      const responseText = await response.text();
+      let detail = responseText || `HTTP ${response.status}`;
+      try {
+        const payload = JSON.parse(responseText);
+        detail = payload.detail || payload.error || detail;
+      } catch {
+        // Keep the plain-text response.
+      }
+      throw new Error(detail);
+    }
+
+    await consumeSse(response.body, async (eventName, payload) => {
+      if (eventName === "meta") {
+        session.sampleRate = Number(payload.sampleRate) || 16000;
+        elements.outputSampleRate.textContent =
+          `${session.sampleRate / 1000} kHz`;
+        elements.resultState.textContent = "等待首段音频";
+        return;
+      }
+      if (eventName === "audio") {
+        const pcmBytes = decodeBase64Pcm(payload.audio || "");
+        if (!pcmBytes.byteLength) return;
+        if (session.firstAudioAt == null) {
+          session.firstAudioAt = performance.now();
+          elements.emptyOutput.classList.add("is-hidden");
+          elements.resultState.textContent = "在线播报中";
+          elements.waveVisual.classList.add("is-playing");
+        }
+        session.chunks.push(pcmBytes);
+        schedulePcm(session, pcmBytes);
+        return;
+      }
+      if (eventName === "done") {
+        session.done = payload;
+        return;
+      }
+      if (eventName === "error") {
+        throw new Error(payload.detail || "流式推理失败");
+      }
+    });
+
+    if (!session.done || !session.chunks.length) {
+      throw new Error("SSE 连接结束，但没有收到完整音频");
+    }
+
+    const wavBlob = createWavBlob(session.chunks, session.sampleRate);
+    if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
+    state.audioUrl = URL.createObjectURL(wavBlob);
+    elements.audioPlayer.src = state.audioUrl;
+    elements.downloadAudio.href = state.audioUrl;
+    elements.downloadAudio.download = `${speakerId}-${Date.now()}-stream.wav`;
+    elements.downloadAudio.textContent = "下载流式 WAV";
+    elements.resultDuration.textContent =
+      `${Number(session.done.durationSeconds).toFixed(2)} s`;
+    elements.resultFormat.textContent = "WAV · SSE PCM · 16 kHz";
+    const localFirstAudio = session.firstAudioAt - startedAt;
+    const firstAudioMs = Number(session.done.firstAudioMs) || localFirstAudio;
+    const totalMs = Number(session.done.totalMs) ||
+      (performance.now() - startedAt);
+    elements.resultLatency.textContent =
+      `首包 ${(firstAudioMs / 1000).toFixed(2)}s · 总 ${(totalMs / 1000).toFixed(2)}s`;
+    elements.audioResult.classList.remove("is-hidden");
+
+    while (
+      !session.cancelled
+      && session.audioContext.currentTime + 0.03 < session.nextPlaybackAt
+    ) {
+      await new Promise((resolve) => window.setTimeout(resolve, 100));
+    }
+    if (!session.cancelled) {
+      elements.resultState.textContent = "播报完成";
+      elements.resultState.classList.add("is-ready");
+      elements.waveVisual.classList.remove("is-playing");
+      toast(
+        "在线播报完成",
+        `${speakerId} · 首包 ${(firstAudioMs / 1000).toFixed(2)} 秒`,
+      );
+    }
+  } catch (error) {
+    if (error.name !== "AbortError" && !session.cancelled) {
+      elements.resultState.textContent = "播报失败";
+      elements.waveVisual.classList.remove("is-playing");
+      toast("在线播报失败", error.message, "error");
+    }
+  } finally {
+    if (!session.cancelled) {
+      await session.audioContext.close().catch(() => {});
+    }
+    if (state.streamSession === session) state.streamSession = null;
+    setStreamingButton(false);
+    elements.generateButton.disabled = false;
+  }
+}
+
 async function synthesize(event) {
   event.preventDefault();
   const speakerId = elements.speakerSelect.value;
@@ -302,9 +614,15 @@ async function synthesize(event) {
   const volume = elements.synthesisVolume.value;
   const outputFormat = elements.synthesisFormat.value;
   const maxChars = elements.synthesisMaxChars.value;
-  if (!speakerId || !targetText) return;
+  if (!speakerId || !targetText || state.streamSession) return;
 
-  setButtonLoading(elements.generateButton, true, "正在生成…", "生成语音");
+  setButtonLoading(
+    elements.generateButton,
+    true,
+    "正在生成…",
+    "生成完整音频",
+  );
+  elements.streamButton.disabled = true;
   elements.resultState.textContent = "推理中";
   elements.resultState.classList.remove("is-ready");
   const startedAt = performance.now();
@@ -358,6 +676,8 @@ async function synthesize(event) {
     elements.resultDuration.textContent = "读取中";
     elements.resultFormat.textContent =
       `${outputFormat.toUpperCase()} · 16 kHz`;
+    elements.outputSampleRate.textContent = "16 kHz";
+    elements.outputTransport.textContent = "Server encoded";
     elements.resultLatency.textContent = `${((performance.now() - startedAt) / 1000).toFixed(2)} s`;
     elements.emptyOutput.classList.add("is-hidden");
     elements.audioResult.classList.remove("is-hidden");
@@ -371,7 +691,13 @@ async function synthesize(event) {
     elements.resultState.textContent = "生成失败";
     toast("语音生成失败", error.message, "error");
   } finally {
-    setButtonLoading(elements.generateButton, false, "正在生成…", "生成语音");
+    setButtonLoading(
+      elements.generateButton,
+      false,
+      "正在生成…",
+      "生成完整音频",
+    );
+    elements.streamButton.disabled = false;
   }
 }
 
@@ -512,6 +838,7 @@ function bindEvents() {
   elements.speakerSelect.addEventListener("change", updatePersonaPreview);
   elements.speakerSearch.addEventListener("input", renderSpeakerTable);
   elements.synthesisForm.addEventListener("submit", synthesize);
+  elements.streamButton.addEventListener("click", streamSynthesize);
   elements.registerForm.addEventListener("submit", registerSpeaker);
   document
     .querySelectorAll('input[name="register-audio-source"]')

@@ -46,7 +46,7 @@
             <strong id="sidebar-status-text">正在连接</strong>
           </span>
         </div>
-        <span class="version">PUBLIC API · Web Gateway v1.6.1</span>
+        <span class="version">PUBLIC API · Web Gateway v1.7.0</span>
       </div>
     </aside>
 
@@ -127,7 +127,7 @@
               <h2>生成一段声音</h2>
               <p>选择声纹并配置画像、语速、音量和输出格式。</p>
             </div>
-            <span class="panel-badge">PUBLIC · /tts/</span>
+            <span class="panel-badge">PUBLIC · OFFLINE + SSE</span>
           </div>
 
           <form id="synthesis-form">
@@ -230,12 +230,19 @@
               </div>
             </div>
 
-            <button class="button button-primary button-generate" id="generate-button" type="submit">
-              <span class="button-wave" aria-hidden="true">
-                <i></i><i></i><i></i><i></i>
-              </span>
-              <span class="button-label">生成语音</span>
-            </button>
+            <div class="synthesis-actions">
+              <button class="button button-primary button-generate" id="generate-button" type="submit">
+                <span class="button-wave" aria-hidden="true">
+                  <i></i><i></i><i></i><i></i>
+                </span>
+                <span class="button-label">生成完整音频</span>
+              </button>
+              <button class="button button-secondary button-stream" id="stream-button" type="button">
+                <span class="live-dot" aria-hidden="true"></span>
+                <span class="button-label">流式在线播报</span>
+              </button>
+            </div>
+            <p class="stream-hint">在线模式通过 SSE 边生成边播放；语速和音量仍由服务端实时处理，完成后可下载 WAV。</p>
           </form>
         </article>
 
@@ -255,9 +262,9 @@
           </div>
 
           <div class="output-specs" aria-label="输出规格">
-            <span><i></i> 16 kHz</span>
+            <span><i></i> <b id="output-sample-rate">16 kHz</b></span>
             <span><i></i> Mono</span>
-            <span><i></i> Server encoded</span>
+            <span><i></i> <b id="output-transport">Server encoded</b></span>
           </div>
 
           <div class="empty-output" id="empty-output">
@@ -279,7 +286,7 @@
 
           <div class="request-note">
             <span>PUBLIC API</span>
-            <code>POST /tts/ · Speaker ID + Audio Post-processing</code>
+            <code>POST /tts/ · POST /tts/stream (SSE)</code>
           </div>
         </aside>
       </section>

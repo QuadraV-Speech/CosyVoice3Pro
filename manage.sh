@@ -39,11 +39,13 @@ PERFORMANCE_PROFILE="${COSYVOICE_PERFORMANCE_PROFILE:-auto}"
 PERFORMANCE_CONFIG_RESOLVED="false"
 KV_CACHE_FREE_GPU_MEMORY_FRACTION=""
 PRO_BLS_INSTANCE_COUNT=""
+STREAMING_BLS_INSTANCE_COUNT=""
 LEGACY_BLS_INSTANCE_COUNT=""
 TOKEN2WAV_INSTANCE_COUNT=""
 VOCODER_INSTANCE_COUNT=""
 INFERENCE_CONCURRENCY=""
 SEGMENT_CONCURRENCY=""
+STREAMING_CONCURRENCY=""
 EAGER_CUDA_INIT=""
 FLOW_BATCH_SIZE=""
 FLOW_BATCH_QUEUE_DELAY_US=""
@@ -127,11 +129,13 @@ resolve_performance_config() {
         throughput)
             KV_CACHE_FREE_GPU_MEMORY_FRACTION="${COSYVOICE_KV_CACHE_FRACTION:-0.50}"
             PRO_BLS_INSTANCE_COUNT="${COSYVOICE_PRO_BLS_INSTANCES:-12}"
+            STREAMING_BLS_INSTANCE_COUNT="${COSYVOICE_STREAMING_BLS_INSTANCES:-2}"
             LEGACY_BLS_INSTANCE_COUNT="${COSYVOICE_LEGACY_BLS_INSTANCES:-2}"
             TOKEN2WAV_INSTANCE_COUNT="${COSYVOICE_TOKEN2WAV_INSTANCES:-2}"
             VOCODER_INSTANCE_COUNT="${COSYVOICE_VOCODER_INSTANCES:-2}"
             INFERENCE_CONCURRENCY="${COSYVOICE_TTS_INFERENCE_CONCURRENCY:-12}"
             SEGMENT_CONCURRENCY="${COSYVOICE_TTS_SEGMENT_CONCURRENCY:-2}"
+            STREAMING_CONCURRENCY="${COSYVOICE_TTS_STREAMING_CONCURRENCY:-2}"
             EAGER_CUDA_INIT="${COSYVOICE_PRO_EAGER_CUDA_INIT:-true}"
             FLOW_BATCH_SIZE="${COSYVOICE_FLOW_BATCH_SIZE:-${COSYVOICE_ACOUSTIC_BATCH_SIZE:-1}}"
             FLOW_BATCH_QUEUE_DELAY_US="${COSYVOICE_FLOW_BATCH_QUEUE_DELAY_US:-${COSYVOICE_ACOUSTIC_BATCH_QUEUE_DELAY_US:-0}}"
@@ -141,11 +145,13 @@ resolve_performance_config() {
         balanced)
             KV_CACHE_FREE_GPU_MEMORY_FRACTION="${COSYVOICE_KV_CACHE_FRACTION:-0.60}"
             PRO_BLS_INSTANCE_COUNT="${COSYVOICE_PRO_BLS_INSTANCES:-10}"
+            STREAMING_BLS_INSTANCE_COUNT="${COSYVOICE_STREAMING_BLS_INSTANCES:-2}"
             LEGACY_BLS_INSTANCE_COUNT="${COSYVOICE_LEGACY_BLS_INSTANCES:-2}"
             TOKEN2WAV_INSTANCE_COUNT="${COSYVOICE_TOKEN2WAV_INSTANCES:-1}"
             VOCODER_INSTANCE_COUNT="${COSYVOICE_VOCODER_INSTANCES:-1}"
             INFERENCE_CONCURRENCY="${COSYVOICE_TTS_INFERENCE_CONCURRENCY:-10}"
             SEGMENT_CONCURRENCY="${COSYVOICE_TTS_SEGMENT_CONCURRENCY:-2}"
+            STREAMING_CONCURRENCY="${COSYVOICE_TTS_STREAMING_CONCURRENCY:-2}"
             EAGER_CUDA_INIT="${COSYVOICE_PRO_EAGER_CUDA_INIT:-false}"
             FLOW_BATCH_SIZE="${COSYVOICE_FLOW_BATCH_SIZE:-${COSYVOICE_ACOUSTIC_BATCH_SIZE:-1}}"
             FLOW_BATCH_QUEUE_DELAY_US="${COSYVOICE_FLOW_BATCH_QUEUE_DELAY_US:-${COSYVOICE_ACOUSTIC_BATCH_QUEUE_DELAY_US:-0}}"
@@ -165,11 +171,13 @@ resolve_performance_config() {
     local value
     for value in \
         "${PRO_BLS_INSTANCE_COUNT}" \
+        "${STREAMING_BLS_INSTANCE_COUNT}" \
         "${LEGACY_BLS_INSTANCE_COUNT}" \
         "${TOKEN2WAV_INSTANCE_COUNT}" \
         "${VOCODER_INSTANCE_COUNT}" \
         "${INFERENCE_CONCURRENCY}" \
-        "${SEGMENT_CONCURRENCY}"; do
+        "${SEGMENT_CONCURRENCY}" \
+        "${STREAMING_CONCURRENCY}"; do
         if ! positive_integer "${value}"; then
             log_err "性能实例数和并发数必须是正整数"
             exit 1
@@ -569,12 +577,15 @@ install_model_overrides() {
     resolve_performance_config
 
     local cosyvoice_model_dir="${TRITON_MODEL_OVERRIDES_DIR}/CosyVoice3Pro"
+    local streaming_model_dir="${TRITON_MODEL_OVERRIDES_DIR}/CosyVoice3ProStreaming"
     local registry_model_dir="${TRITON_MODEL_OVERRIDES_DIR}/CosyVoice3ProSpeakerRegistry"
     local token2wav_model_dir="${TRITON_MODEL_OVERRIDES_DIR}/token2wav"
     local vocoder_model_dir="${TRITON_MODEL_OVERRIDES_DIR}/vocoder"
 
     if [ ! -f "${cosyvoice_model_dir}/config.pbtxt" ] ||
        [ ! -f "${cosyvoice_model_dir}/1/model.py" ] ||
+       [ ! -f "${streaming_model_dir}/config.pbtxt" ] ||
+       [ ! -f "${streaming_model_dir}/1/model.py" ] ||
        [ ! -f "${registry_model_dir}/config.pbtxt" ] ||
        [ ! -f "${registry_model_dir}/1/model.py" ] ||
        [ ! -f "${token2wav_model_dir}/config.pbtxt" ] ||
@@ -589,6 +600,7 @@ install_model_overrides() {
 set -e
 mkdir -p \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/1' \
+  '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3ProStreaming/1' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3ProSpeakerRegistry/1' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/token2wav/1' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/vocoder/1' \
@@ -598,6 +610,9 @@ mkdir -p \
     docker cp \
         "${cosyvoice_model_dir}/." \
         "${CONTAINER_NAME}:${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/"
+    docker cp \
+        "${streaming_model_dir}/." \
+        "${CONTAINER_NAME}:${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3ProStreaming/"
     docker cp \
         "${registry_model_dir}/." \
         "${CONTAINER_NAME}:${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3ProSpeakerRegistry/"
@@ -612,6 +627,8 @@ mkdir -p \
 set -e
 sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${PRO_BLS_INSTANCE_COUNT}/' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/config.pbtxt'
+sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${STREAMING_BLS_INSTANCE_COUNT}/' \
+  '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3ProStreaming/config.pbtxt'
 sed -i -E '/key:[[:space:]]*\"eager_cuda_init\"/,/}/s/string_value:[[:space:]]*\"(true|false)\"/string_value: \"${EAGER_CUDA_INIT}\"/' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/config.pbtxt'
 sed -i -E '/key:[[:space:]]*\"flow_batching_enabled\"/,/}/s/string_value:[[:space:]]*\"(true|false)\"/string_value: \"${FLOW_BATCHING_ENABLED}\"/' \
@@ -637,7 +654,7 @@ sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${VOCODER_INSTANCE_COUNT}/' \
 "
 
     log_ok "模型覆盖文件部署完成"
-    log_info "实例配置：Pro BLS=${PRO_BLS_INSTANCE_COUNT}，Legacy BLS=${LEGACY_BLS_INSTANCE_COUNT}，token2wav=${TOKEN2WAV_INSTANCE_COUNT}，vocoder=${VOCODER_INSTANCE_COUNT}，eager CUDA=${EAGER_CUDA_INIT}"
+    log_info "实例配置：Pro BLS=${PRO_BLS_INSTANCE_COUNT}，Streaming BLS=${STREAMING_BLS_INSTANCE_COUNT}，Legacy BLS=${LEGACY_BLS_INSTANCE_COUNT}，token2wav=${TOKEN2WAV_INSTANCE_COUNT}，vocoder=${VOCODER_INSTANCE_COUNT}，eager CUDA=${EAGER_CUDA_INIT}"
     log_info "Flow Batch：max=${FLOW_BATCH_SIZE}，preferred=[${FLOW_PREFERRED_BATCH_SIZES}]，queue=${FLOW_BATCH_QUEUE_DELAY_US}us"
     log_info "Vocoder Batch：max=${VOCODER_BATCH_SIZE}，preferred=[${VOCODER_PREFERRED_BATCH_SIZES}]，queue=${VOCODER_BATCH_QUEUE_DELAY_US}us"
     local mounted_store
@@ -694,6 +711,7 @@ install_web_gateway() {
 
     if [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/app.py" ] ||
        [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/legacy_tts.py" ] ||
+       [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/streaming_tts.py" ] ||
        [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/speaker_registration.py" ] ||
        [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/tts_utils.py" ] ||
        [ ! -f "${WEB_GATEWAY_SOURCE_DIR}/web/index.html" ] ||
@@ -796,8 +814,10 @@ nohup bash run_cosyvoice3.sh 3 3 > ${LOG_FILE} 2>&1 &
 
 cd ${CONTAINER_WEB_GATEWAY_DIR}
 COSYVOICE_TRITON_UPSTREAM=http://127.0.0.1:${TRITON_INTERNAL_HTTP_PORT} \
+COSYVOICE_TRITON_GRPC_UPSTREAM=127.0.0.1:${HOST_GRPC_PORT} \
 COSYVOICE_TTS_INFERENCE_CONCURRENCY=${INFERENCE_CONCURRENCY} \
 COSYVOICE_TTS_SEGMENT_CONCURRENCY=${SEGMENT_CONCURRENCY} \
+COSYVOICE_TTS_STREAMING_CONCURRENCY=${STREAMING_CONCURRENCY} \
   nohup python3 -m uvicorn app:app \
     --host 0.0.0.0 \
     --port 18000 \
@@ -887,7 +907,7 @@ show_status() {
 
     if container_exists && container_running; then
         docker exec "${CONTAINER_NAME}" /bin/bash -lc "
-for model in CosyVoice3Pro cosyvoice3 token2wav vocoder; do
+for model in CosyVoice3Pro CosyVoice3ProStreaming cosyvoice3 token2wav vocoder; do
     config='${TRITON_DIR}/model_repo_cosyvoice3_copy/'\"\${model}\"'/config.pbtxt'
     count=\$(sed -n '/instance_group/,/]/p' \"\${config}\" 2>/dev/null |
         sed -n -E 's/.*count:[[:space:]]*([0-9]+).*/\1/p' | head -n 1)
@@ -904,7 +924,7 @@ ps -ef | grep '[t]rtllm-serve serve' | grep -oE -- \
 gateway_pid=\$(pgrep -f '[u]vicorn app:app' | head -n 1)
 if [ -n \"\${gateway_pid}\" ]; then
     tr '\0' '\n' < \"/proc/\${gateway_pid}/environ\" |
-        grep '^COSYVOICE_TTS_.*CONCURRENCY=' | sort || true
+        grep -E '^COSYVOICE_(TTS_.*CONCURRENCY|TRITON_GRPC_UPSTREAM)=' | sort || true
 fi
 "
     else

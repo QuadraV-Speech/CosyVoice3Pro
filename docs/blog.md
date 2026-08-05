@@ -94,7 +94,8 @@ Default Prompt Persona
  │          CosyVoice3Pro Gateway              │
  │                                             │
  │ Public API                                  │
- │ /health · /register · /speakers · /tts/     │
+ │ /health · /register · /speakers             │
+ │ /tts/ · /tts/stream (SSE)                   │
  │       ▲                                     │
  │       └──────── Web 工作台使用同一组 API     │
  │                                             │
@@ -102,6 +103,7 @@ Default Prompt Persona
  │ /v2/* ───────────────► Triton HTTP :18100   │
  └──────────────────────────┬──────────────────┘
                             ├── CosyVoice3Pro
+                            ├── CosyVoice3ProStreaming
                             ├── Speaker Registry
                             └── upstream cosyvoice3
 
@@ -247,8 +249,7 @@ L20 的流式首包、离线批处理与本文 A100 端到端 HTTP 并发并不�
 ## 使用前需要知道
 
 - CosyVoice3Pro 是社区服务化增强项目，并非 FunAudioLLM 官方发行版；
-- Public `/tts/` 当前返回完整音频，官方 decoupled streaming 仍通过高级
-  Triton 接口保留；
+- Public `/tts/` 返回完整音频，`/tts/stream` 通过 SSE 边生成边播报；
 - 服务默认没有应用层登录认证，公网部署需要在反向代理或负载均衡层增加
   TLS、鉴权、限流和来源限制；
 - 性能会随 GPU、文本长度、Speaker 和采样结果变化，应在目标环境复测；
@@ -267,7 +268,7 @@ CosyVoice3Pro 希望继续解决：
 - 给项目一个 Star；
 - 提交实际 GPU 的 Benchmark 数据；
 - 反馈 API、音质、并发和部署问题；
-- 参与完善流式 Public API、鉴权和更多生产能力。
+- 参与完善鉴权、多租户和更多生产能力。
 
 项目地址：
 [github.com/QuadraV-Speech/CosyVoice3Pro](https://github.com/QuadraV-Speech/CosyVoice3Pro)

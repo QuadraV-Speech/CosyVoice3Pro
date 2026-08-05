@@ -11,10 +11,11 @@ from starlette.background import BackgroundTask
 
 from legacy_tts import router as legacy_tts_router
 from speaker_registration import router as speaker_registration_router
+from streaming_tts import router as streaming_tts_router
 
 
 SERVICE_NAME = "CosyVoice3Pro Web Gateway"
-SERVICE_VERSION = "1.6.1"
+SERVICE_VERSION = "1.7.0"
 TRITON_UPSTREAM = os.environ.get(
     "COSYVOICE_TRITON_UPSTREAM", "http://127.0.0.1:18100").rstrip("/")
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -56,6 +57,7 @@ app = FastAPI(
 )
 app.include_router(legacy_tts_router)
 app.include_router(speaker_registration_router)
+app.include_router(streaming_tts_router)
 
 
 def _forward_headers(headers):
@@ -84,15 +86,17 @@ async def _upstream_ready(request, path):
 
 @app.get("/health")
 async def public_health(request: Request):
-    triton_ready, tts_ready, registry_ready = await asyncio.gather(
+    triton_ready, tts_ready, streaming_ready, registry_ready = await asyncio.gather(
         _upstream_ready(request, "/v2/health/ready"),
         _upstream_ready(request, "/v2/models/CosyVoice3Pro/ready"),
+        _upstream_ready(
+            request, "/v2/models/CosyVoice3ProStreaming/ready"),
         _upstream_ready(
             request,
             "/v2/models/CosyVoice3ProSpeakerRegistry/ready",
         ),
     )
-    ready = triton_ready and tts_ready and registry_ready
+    ready = triton_ready and tts_ready and streaming_ready and registry_ready
     return JSONResponse(
         status_code=200 if ready else 503,
         content={
@@ -103,6 +107,7 @@ async def public_health(request: Request):
             "tritonReady": triton_ready,
             "models": {
                 "ttsReady": tts_ready,
+                "streamingTtsReady": streaming_ready,
                 "speakerRegistryReady": registry_ready,
             },
         },
@@ -130,6 +135,7 @@ async def service_info(request: Request):
             "register": "/register",
             "speakers": "/speakers",
             "tts": "/tts/",
+            "streaming_tts": "/tts/stream",
             "triton": "/v2/",
             "grpc_port": 18001,
             "metrics_port": 18002,

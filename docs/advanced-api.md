@@ -21,6 +21,7 @@ Gateway 将外部 `/v2/*` 原样代理至容器内部 Triton `18100`。内部 AP
 | `/v2/health/ready` | Triton 健康检查 |
 | `/v2/models/CosyVoice3Pro/ready` | TTS 模型状态 |
 | `/v2/models/CosyVoice3Pro/infer` | 高级 TTS Tensor 推理 |
+| `/v2/models/CosyVoice3ProStreaming/ready` | Decoupled 流式模型状态 |
 | `/v2/models/CosyVoice3ProSpeakerRegistry/ready` | Registry 模型状态 |
 | `/v2/models/CosyVoice3ProSpeakerRegistry/infer` | Registry Tensor 操作 |
 | `/admin/api/info` | Gateway 内部信息 |
@@ -32,6 +33,7 @@ Gateway 将外部 `/v2/*` 原样代理至容器内部 Triton `18100`。内部 AP
 ```bash
 curl -f "http://127.0.0.1:18000/v2/health/ready"
 curl -f "http://127.0.0.1:18000/v2/models/CosyVoice3Pro/ready"
+curl -f "http://127.0.0.1:18000/v2/models/CosyVoice3ProStreaming/ready"
 curl -f "http://127.0.0.1:18000/v2/models/CosyVoice3ProSpeakerRegistry/ready"
 ```
 
@@ -306,7 +308,19 @@ sf.write(
 )
 ```
 
-需要 MP3、M4A、音量、语速或长文本处理时，应使用对外 `/tts/`。
+需要 MP3、M4A 或长文本处理时，应使用对外 `/tts/`；需要带语速、音量
+后处理的在线分块时，使用对外 `/tts/stream`。
+
+### 8.1 Decoupled 流式模型
+
+`CosyVoice3ProStreaming` 与离线模型共用同一份 BLS 实现，但配置了
+`model_transaction_policy { decoupled: true }`。它通过 Triton 双向 gRPC
+流持续返回多份 `waveform`，不能使用普通 `/v2/.../infer` HTTP 请求消费。
+
+业务客户端不需要直接构造 Triton gRPC Tensor。Gateway 已将它封装为
+`POST /tts/stream` SSE，并负责断连取消、PCM 编码、重采样、语速和音量。
+直连 gRPC 适合模型调试，输入 Tensor 与本章离线模型完全一致，输出为多段
+24kHz FP32 `waveform`。
 
 ## 9. Speaker 缓存与持久化
 
@@ -355,5 +369,5 @@ COSYVOICE_WEB_GATEWAY_ENABLED=false \
   bash manage.sh restart
 ```
 
-此模式下对外 `/health`、`/register`、`/speakers`、`/tts/` 和 Web 页面
-均不可用，仅保留 Triton `/v2/*`。
+此模式下对外 `/health`、`/register`、`/speakers`、`/tts/`、
+`/tts/stream` 和 Web 页面均不可用，仅保留 Triton `/v2/*`。

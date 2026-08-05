@@ -48,7 +48,7 @@ Speaker 的默认画像。
 | Prompt | 客户端组织参考文本/指令 | **注册默认画像，请求级覆盖** |
 | 输入与输出 | 客户端准备 Tensor、处理波形 | **文件/URL 注册，长文本、语速、音量、9 种格式** |
 | 管理与运维 | Triton 原生能力 | **同端口 Web、健康检查、耗时头、自动性能 Profile** |
-| 高级能力 | decoupled streaming、Metrics | **原样保留；Public `/tts/` 当前返回完整音频** |
+| 流式能力 | 高级 gRPC Decoupled 调用 | **Public SSE、浏览器边收边播、curl 可用** |
 
 CosyVoice3Pro 是社区服务化增强版，并非 FunAudioLLM 官方发行版。
 
@@ -115,7 +115,8 @@ Flow/Vocoder 动态 Batch 已提供实验开关；A100 默认仍采用实测更�
  │          CosyVoice3Pro Gateway              │
  │                                             │
  │ Public API                                  │
- │ /health · /register · /speakers · /tts/     │
+ │ /health · /register · /speakers             │
+ │ /tts/ · /tts/stream (SSE)                   │
  │       ▲                                     │
  │       └──────── Web Admin 使用同一组 API     │
  │                                             │
@@ -123,6 +124,7 @@ Flow/Vocoder 动态 Batch 已提供实验开关；A100 默认仍采用实测更�
  │ /v2/* ───────────────► Triton HTTP :18100   │
  └──────────────────────────┬──────────────────┘
                             ├── CosyVoice3Pro
+                            ├── CosyVoice3ProStreaming
                             ├── Speaker Registry
                             └── upstream cosyvoice3
 
@@ -148,6 +150,7 @@ Embedding 四个核心条件。点击图片可查看张量级说明和流式调�
 | `GET` | `/speakers`、`/speakers/{speakerId}` | 查询声纹 |
 | `DELETE` | `/speakers/{speakerId}` | 删除声纹 |
 | `POST` | `/tts/` | 合成并返回处理后的音频 |
+| `POST` | `/tts/stream` | SSE 边生成边播报 |
 | `GET` | `/` | Web 工作台 |
 
 ## 快速开始
@@ -202,6 +205,20 @@ curl --fail-with-body \
 不传或传空 `prompt` 使用 Speaker 默认画像；非空值仅覆盖本次请求。
 `/tts/` 也支持内置声音和直接上传 `prompt_audio`。更多 curl 见
 [对外 API 文档](docs/public-api.md)。
+
+### SSE 在线播报
+
+```bash
+curl --fail-with-body -N --no-buffer \
+  -X POST "http://127.0.0.1:18000/tts/stream" \
+  -F "text=你好，这段声音会边生成边返回。" \
+  -F "speakerId=common_speaker_1" \
+  -F "prompt=请自然、清晰地说话。"
+```
+
+返回 `meta → audio × N → done` 事件；`audio` 是 16kHz 单声道 Base64
+PCM。网页会实时解码播放，完整的 curl + `ffplay` 示例见
+[SSE 接口文档](docs/public-api.md#8-sse-在线流式合成)。
 
 ## 服务管理
 
