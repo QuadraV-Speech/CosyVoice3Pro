@@ -56,7 +56,7 @@ STREAMING_MODEL = "CosyVoice3ProStreaming"
 TRITON_GRPC_UPSTREAM = os.environ.get(
     "COSYVOICE_TRITON_GRPC_UPSTREAM", "127.0.0.1:18001")
 STREAMING_CONCURRENCY = positive_env(
-    "COSYVOICE_TTS_STREAMING_CONCURRENCY", 2)
+    "COSYVOICE_TTS_STREAMING_CONCURRENCY", 4)
 STREAM_TIMEOUT_SECONDS = positive_env(
     "COSYVOICE_TTS_STREAM_TIMEOUT_SECONDS", 300)
 MAX_STREAM_TEXT_LENGTH = 1000
@@ -65,6 +65,15 @@ PCM_EVENT_BYTES = 6400  # 200 ms at 16 kHz mono PCM16.
 SSE_KEEPALIVE_SECONDS = 10
 
 _streaming_semaphore = asyncio.Semaphore(STREAMING_CONCURRENCY)
+
+
+def create_triton_grpc_client():
+    if grpcclient is None:
+        return None
+    return grpcclient.InferenceServerClient(
+        url=TRITON_GRPC_UPSTREAM,
+        verbose=False,
+    )
 
 
 def _sse_event(event, payload, event_id=None):
@@ -127,6 +136,7 @@ def _build_triton_inputs(
 
 
 async def _triton_waveforms(
+    client,
     text,
     prompt,
     speaker_id,
@@ -134,10 +144,6 @@ async def _triton_waveforms(
     reference_text,
     request_id,
 ):
-    client = grpcclient.InferenceServerClient(
-        url=TRITON_GRPC_UPSTREAM,
-        verbose=False,
-    )
     response_iterator = None
 
     async def request_iterator():
@@ -176,7 +182,6 @@ async def _triton_waveforms(
     finally:
         if response_iterator is not None:
             response_iterator.cancel()
-        await client.close()
 
 
 async def _close_stdin(stdin):
@@ -201,6 +206,10 @@ async def _feed_ffmpeg(
                 return
             stats["triton_chunks"] += 1
             stats["input_samples"] += int(waveform.size)
+            if stats["first_triton_ms"] is None:
+                stats["first_triton_ms"] = (
+                    time.perf_counter() - stats["started_at"]
+                ) * 1000
             process.stdin.write(
                 np.ascontiguousarray(waveform, dtype=np.float32).tobytes()
             )
@@ -251,11 +260,13 @@ async def _stream_sse(
     read_task = None
     slot_acquired = False
     stats = {
+        "started_at": started_at,
         "triton_chunks": 0,
         "input_samples": 0,
         "output_samples": 0,
         "sse_chunks": 0,
         "first_audio_ms": None,
+        "first_triton_ms": None,
         "disconnected": False,
     }
 
@@ -284,6 +295,7 @@ async def _stream_sse(
         "channels": 1,
         "speed": speed,
         "volume": volume,
+        "concurrencyLimit": STREAMING_CONCURRENCY,
     })
 
     try:
@@ -291,6 +303,12 @@ async def _stream_sse(
         slot_acquired = True
         if await request.is_disconnected():
             return
+        queue_ms = (time.perf_counter() - started_at) * 1000
+        yield _sse_event("queue", {
+            "requestId": request_id,
+            "queueMs": round(queue_ms, 1),
+            "concurrencyLimit": STREAMING_CONCURRENCY,
+        })
         process = await asyncio.create_subprocess_exec(
             "ffmpeg",
             "-hide_banner",
@@ -298,6 +316,7 @@ async def _stream_sse(
             "-f", "f32le",
             "-ar", str(SAMPLE_RATE),
             "-ac", "1",
+            "-probesize", "32",
             "-i", "pipe:0",
             "-af", f"volume={VOLUME_MAP[volume]},atempo={SPEED_MAP[speed]}",
             "-ar", str(OUTPUT_SAMPLE_RATE),
@@ -311,6 +330,7 @@ async def _stream_sse(
             stderr=asyncio.subprocess.PIPE,
         )
         inference = _triton_waveforms(
+            client=request.app.state.streaming_grpc_client,
             text=text,
             prompt=prompt,
             speaker_id=speaker_id,
@@ -376,6 +396,14 @@ async def _stream_sse(
             "durationSeconds": (
                 stats["output_samples"] / OUTPUT_SAMPLE_RATE),
             "firstAudioMs": round(stats["first_audio_ms"], 1),
+            "tritonFirstAudioMs": round(stats["first_triton_ms"], 1),
+            "postprocessFirstAudioMs": round(
+                max(0, stats["first_audio_ms"] - stats["first_triton_ms"]),
+                1,
+            ),
+            "queueMs": round(queue_ms, 1),
+            "inferenceFirstAudioMs": round(
+                max(0, stats["first_audio_ms"] - queue_ms), 1),
             "totalMs": round(total_ms, 1),
         })
     except asyncio.CancelledError:
@@ -411,6 +439,11 @@ async def streaming_tts(request: Request):
         raise HTTPException(
             status_code=503,
             detail="服务端未安装 Triton gRPC Client",
+        )
+    if getattr(request.app.state, "streaming_grpc_client", None) is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Triton gRPC Client 尚未就绪",
         )
     if shutil.which("ffmpeg") is None:
         raise HTTPException(status_code=503, detail="服务端未安装 FFmpeg")

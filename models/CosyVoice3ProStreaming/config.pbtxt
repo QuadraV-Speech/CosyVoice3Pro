@@ -70,6 +70,12 @@ parameters [
     value: {
       string_value: "exponential"
     }
+  },
+  {
+    key: "streaming_chunk_growth_offset"
+    value: {
+      string_value: "1"
+    }
   }
 ]
 

@@ -530,6 +530,13 @@ async function streamSynthesize() {
         elements.resultState.textContent = "等待首段音频";
         return;
       }
+      if (eventName === "queue") {
+        const queueMs = Number(payload.queueMs) || 0;
+        elements.resultState.textContent = queueMs >= 50
+          ? `排队 ${(queueMs / 1000).toFixed(2)}s，正在推理`
+          : "正在推理首段音频";
+        return;
+      }
       if (eventName === "audio") {
         const pcmBytes = decodeBase64Pcm(payload.audio || "");
         if (!pcmBytes.byteLength) return;
@@ -568,10 +575,11 @@ async function streamSynthesize() {
     elements.resultFormat.textContent = "WAV · SSE PCM · 16 kHz";
     const localFirstAudio = session.firstAudioAt - startedAt;
     const firstAudioMs = Number(session.done.firstAudioMs) || localFirstAudio;
+    const queueMs = Number(session.done.queueMs) || 0;
     const totalMs = Number(session.done.totalMs) ||
       (performance.now() - startedAt);
     elements.resultLatency.textContent =
-      `首包 ${(firstAudioMs / 1000).toFixed(2)}s · 总 ${(totalMs / 1000).toFixed(2)}s`;
+      `首包 ${(firstAudioMs / 1000).toFixed(2)}s · 排队 ${(queueMs / 1000).toFixed(2)}s · 总 ${(totalMs / 1000).toFixed(2)}s`;
     elements.audioResult.classList.remove("is-hidden");
 
     while (

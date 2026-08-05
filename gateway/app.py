@@ -11,11 +11,14 @@ from starlette.background import BackgroundTask
 
 from legacy_tts import router as legacy_tts_router
 from speaker_registration import router as speaker_registration_router
-from streaming_tts import router as streaming_tts_router
+from streaming_tts import (
+    create_triton_grpc_client,
+    router as streaming_tts_router,
+)
 
 
 SERVICE_NAME = "CosyVoice3Pro Web Gateway"
-SERVICE_VERSION = "1.7.0"
+SERVICE_VERSION = "1.8.0"
 TRITON_UPSTREAM = os.environ.get(
     "COSYVOICE_TRITON_UPSTREAM", "http://127.0.0.1:18100").rstrip("/")
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -35,6 +38,7 @@ HOP_BY_HOP_HEADERS = {
 @asynccontextmanager
 async def lifespan(app):
     app.state.triton_upstream = TRITON_UPSTREAM
+    app.state.streaming_grpc_client = create_triton_grpc_client()
     app.state.http_client = httpx.AsyncClient(
         timeout=None,
         trust_env=False,
@@ -44,6 +48,8 @@ async def lifespan(app):
         ),
     )
     yield
+    if app.state.streaming_grpc_client is not None:
+        await app.state.streaming_grpc_client.close()
     await app.state.http_client.aclose()
 
 

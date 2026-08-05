@@ -2,6 +2,32 @@
 
 All notable project changes are documented here.
 
+## [1.8.0] - 2026-08-05
+
+### Added
+
+- Official-aligned streaming benchmark for direct Triton gRPC and Public SSE,
+  including TTFA percentiles, system RTF, throughput, failures, and Gateway
+  queue time.
+- SSE `queue` event plus Triton-first-audio and post-processing timing fields.
+
+### Changed
+
+- The Gateway now reuses one asynchronous Triton gRPC channel while retaining
+  an independent response iterator and cancellation path per request.
+- Streaming Flow and Vocoder child requests use first-chunk priority to improve
+  latency fairness under concurrent load.
+- The A100 throughput profile accepts up to 10 Public SSE streams while keeping
+  the empirically faster two Streaming BLS and two Vocoder instances.
+- The throughput profile keeps the first acoustic chunk unchanged and grows
+  later chunks more aggressively, reducing repeated Flow/Vocoder work.
+- FFmpeg raw-input probing is minimized so processed PCM is emitted while the
+  Triton stream remains open instead of being buffered until near completion.
+- The Web console displays queue time separately from first-audio and total
+  latency.
+- In the controlled A100 streaming test, concurrency-16 audio throughput rises
+  from 12.94x to 17.21x while system RTF falls from 0.0773 to 0.0581.
+
 ## [1.7.0] - 2026-08-05
 
 ### Added
@@ -90,6 +116,7 @@ All notable project changes are documented here.
 - Per-speaker default Prompt persona and per-request override.
 - Server-side speed, volume, chunking, and audio-format post-processing.
 
+[1.8.0]: https://github.com/QuadraV-Speech/CosyVoice3Pro/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/QuadraV-Speech/CosyVoice3Pro/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/QuadraV-Speech/CosyVoice3Pro/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/QuadraV-Speech/CosyVoice3Pro/compare/v1.5.1...v1.6.0

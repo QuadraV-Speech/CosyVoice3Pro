@@ -82,7 +82,7 @@ curl --fail-with-body \
 {
   "status": "ok",
   "service": "CosyVoice3Pro Web Gateway",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "gatewayReady": true,
   "tritonReady": true,
   "models": {
@@ -438,21 +438,26 @@ curl --fail-with-body -sS -N --no-buffer \
 
 ```text
 event: meta
-data: {"requestId":"...","encoding":"pcm_s16le","sampleRate":16000,"channels":1}
+data: {"requestId":"...","encoding":"pcm_s16le","sampleRate":16000,"channels":1,"concurrencyLimit":10}
+
+event: queue
+data: {"requestId":"...","queueMs":1.8,"concurrencyLimit":10}
 
 id: 0
 event: audio
 data: {"seq":0,"samples":3200,"audio":"Base64 PCM..."}
 
 event: done
-data: {"chunks":18,"samples":57600,"durationSeconds":3.6,"firstAudioMs":620.4,"totalMs":910.2}
+data: {"chunks":18,"samples":57600,"durationSeconds":3.6,"firstAudioMs":620.4,"queueMs":1.8,"tritonFirstAudioMs":351.2,"postprocessFirstAudioMs":269.2,"inferenceFirstAudioMs":618.6,"totalMs":910.2}
 ```
 
 事件含义：
 
 - `meta`：一次请求的声音来源、编码、采样率、语速和音量
+- `queue`：取得服务端流式并发槽后的等待时间和当前并发上限
 - `audio`：可立即播放的 PCM 分块，`seq` 从 0 递增
-- `done`：总分块、音频时长、服务端首包和总生成耗时
+- `done`：总分块、音频时长、服务端首包、排队、Triton 首段、后处理首段和
+  总生成耗时；所有 `*Ms` 字段单位均为毫秒
 - `error`：响应开始后的推理错误；收到后应停止播放并展示 `detail`
 - `: keep-alive`：长时间没有音频时的 SSE 注释心跳
 

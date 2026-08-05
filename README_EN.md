@@ -93,7 +93,22 @@ From the
 Upstream publishes no A100 result. The L20 streaming/offline workloads are not
 directly comparable with Pro's end-to-end A100 HTTP benchmark.
 
-### Pro concurrency scaling
+### Pro streaming concurrency
+
+The direct gRPC timer follows the upstream first-nonempty-waveform boundary;
+each profile uses 16 requests with one registered speaker and fixed text:
+
+| A100 gRPC concurrency | Success | TTFA Avg | P50 | P95 | System RTF | Audio throughput |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 4 | 16/16 | 598.99 ms | 455.81 ms | 1137.02 ms | 0.0799 | 12.52x |
+| 8 | 16/16 | 1008.40 ms | 996.94 ms | 1396.22 ms | 0.0657 | 15.23x |
+| 16 | 16/16 | 2048.85 ms | 2053.21 ms | 3011.77 ms | **0.0581** | **17.21x** |
+
+At concurrency 16, audio throughput improves **33.0%** and average full
+generation latency falls **26.0%** versus the pre-optimization baseline. Public
+SSE accepts 10 concurrent streams by default and reports queue time separately.
+
+### Pro full-audio concurrency
 
 | GPU | Concurrency | Success | P50 | P95 | System RTF | Audio throughput |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |

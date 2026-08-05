@@ -157,16 +157,24 @@ COSYVOICE_PERFORMANCE_PROFILE=balanced \
 `X-CosyVoice-Encode-Ms`，可用于区分模型排队和音频编码耗时。实例数、
 显存参数、压力测试和调优方法见[性能基准文档](benchmark.md)。
 
-流式并发默认与独立 Decoupled BLS 实例数一致，均为 2。可按显存和在线
-请求比例调整并重启：
+`throughput` 的 Public SSE 并发上限为 10，`balanced` 为 4；独立
+Decoupled BLS 默认保持 2 个。实测中盲目增加 BLS/Vocoder 实例会增加单卡
+GPU 上下文竞争，实例数应通过压力测试调整，而不是与并发上限一一对应：
 
 ```bash
 COSYVOICE_STREAMING_BLS_INSTANCES=4 \
-COSYVOICE_TTS_STREAMING_CONCURRENCY=4 \
+COSYVOICE_TTS_STREAMING_CONCURRENCY=8 \
   bash manage.sh restart
 ```
 
 `COSYVOICE_TTS_STREAM_TIMEOUT_SECONDS` 控制单条 gRPC 流超时，默认 300 秒。
+SSE 的 `queue` 事件和 `done.queueMs` 可直接观察 Gateway 限流等待；
+`done.tritonFirstAudioMs` 与 `done.postprocessFirstAudioMs` 用于拆分模型与音频
+后处理首包耗时。
+
+`throughput` 默认设置 `COSYVOICE_STREAMING_CHUNK_GROWTH_OFFSET=1`：第一段
+仍为 15 个语音 Token，后续块按 50、100… 增长，减少重复 Flow/Vocoder
+计算。对分块间隔更敏感时可设为 `0`，恢复 15、25、50… 的保守节奏。
 
 ## 8. 仓库结构
 

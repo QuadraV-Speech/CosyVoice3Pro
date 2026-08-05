@@ -25,6 +25,7 @@ class AcousticBatchingTest(unittest.TestCase):
             ROOT / "models" / "CosyVoice3Pro" / "config.pbtxt").read_text()
         self.assertIn("max_batch_size: 1", token_config)
         self.assertIn("max_batch_size: 1", vocoder_config)
+        self.assertIn("priority_levels: 100", vocoder_config)
         self.assertIn('key: "flow_batching_enabled"', pro_config)
         self.assertIn('key: "vocoder_batching_enabled"', pro_config)
 

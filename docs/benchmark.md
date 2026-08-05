@@ -1,8 +1,8 @@
 # CosyVoice3Pro 性能基准
 
-本页记录通过 Public API `/tts/` 得到的端到端实测结果。计时包含 Web
-Gateway、Speaker Registry 读取、CosyVoice3Pro 推理、音频后处理与 WAV
-响应传输，不是只统计模型内部耗时。
+本页记录完整音频 Public API `/tts/`、在线 Public SSE `/tts/stream` 和直连
+Triton gRPC 的实测结果。每张表会明确计时边界，不把模型内部指标与端到端
+结果混在一起。
 
 ## 测试环境
 
@@ -12,10 +12,10 @@ Gateway、Speaker Registry 读取、CosyVoice3Pro 推理、音频后处理与 WA
 | NVIDIA Driver | 550.127.08 |
 | Triton 镜像 | `soar97/triton-cosyvoice:25.06` |
 | 上游 CosyVoice commit | `074ca6d` |
-| Gateway | CosyVoice3Pro Web Gateway `1.6.1` |
+| Gateway | 离线基准 `1.6.1`；流式基准 `1.8.0` |
 | 模式 | 已注册 Speaker、WAV、16 kHz、单声道 |
-| Profile | `throughput`：Pro BLS 12、token2wav 2、vocoder 2 |
-| 测试日期 | 2026-07-29 |
+| Profile | `throughput`：Pro BLS 12、Streaming BLS 2、token2wav 2、vocoder 2 |
+| 测试日期 | 离线 2026-07-29；流式 2026-08-05 |
 
 测试文本：
 
@@ -44,14 +44,19 @@ JSON 结果中的 `request_rtf_average` 是逐请求
 `COSYVOICE_PERFORMANCE_PROFILE=auto` 会读取容器可见 GPU 显存。显存不小于
 70000 MiB 时使用 `throughput`，否则使用 `balanced`：
 
-| Profile | LLM KV | Pro BLS | Legacy BLS | token2wav | vocoder | Gateway | 单请求分段 | CUDA 预热 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `balanced` | 0.60 | 10 | 2 | 1 | 1 | 10 | 2 | 否 |
-| `throughput` | 0.50 | 12 | 2 | 2 | 2 | 12 | 2 | 是 |
+| Profile | LLM KV | Pro BLS | Streaming BLS | Legacy BLS | token2wav | vocoder | `/tts/` 并发 | SSE 并发 | 单请求分段 | CUDA 预热 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `balanced` | 0.60 | 10 | 2 | 2 | 1 | 1 | 10 | 4 | 2 | 否 |
+| `throughput` | 0.50 | 12 | 2 | 2 | 2 | 2 | 12 | 10 | 2 | 是 |
 
 双 `token2wav` 但单 `vocoder` 只会把队列从声学模型转移到声码器，因此
 `throughput` Profile 同时扩展两个阶段。模型生成步数、采样参数和音频后处理
 保持不变。
+
+流式并发上限和模型实例数刻意解耦。Decoupled BLS 在等待 LLM、Flow 和
+Vocoder 子请求时仍能承载多个流；在这台共享 A100 上将 Streaming BLS 从 2
+增至 10、Vocoder 从 2 增至 4，反而因 GPU 上下文竞争降低吞吐，因此不作为
+默认值。若使用独占 GPU，可通过环境变量重新执行受控 A/B。
 
 ### 声学动态 Batch（实验）
 
@@ -144,6 +149,56 @@ A100 上的复测。它用于隔离本项目配置优化带来的变化，不冒
 这是指定软硬件环境的一次端到端测量，不代表所有 GPU、文本和声音都能得到
 相同结果。
 
+## 流式 gRPC / SSE 高并发
+
+流式 TTFA（Time To First Audio）采用官方 `client_grpc.py` 的计时边界：在
+提交 Triton `stream_infer` 前开始计时，收到第一段非空 `waveform` 时停止。
+输入准备和预热不计入 TTFA。`scripts/benchmark_streaming.py` 同时报告官方
+聚合系统 RTF、音频吞吐、完整生成耗时和失败数。
+
+### A100 受控优化 A/B
+
+两组均使用同一 A100-SXM4-80GB、同一服务进程绑定、同一注册声纹、固定文本、
+每档 16 个请求和 2 个预热请求。测试期间同卡保留一个约 15.2 GiB 的既有
+HongYin 服务，但没有其他临时 Ray 任务；因此本表用于比较 CosyVoice3Pro
+改动前后，不作为独占 A100 峰值。
+
+| 并发 | 成功 | TTFA Avg（前 → 后） | 完整耗时 Avg（前 → 后） | 系统 RTF（前 → 后） | 音频吞吐（前 → 后） | 吞吐变化 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 16/16 | 242.92 → 242.29 ms | 914.48 → 773.62 ms | 0.1492 → 0.1343 | 6.70x → 7.44x | +11.1% |
+| 2 | 16/16 | 377.17 → 333.08 ms | 1.28 → 1.14 s | 0.1075 → 0.1001 | 9.30x → 9.99x | +7.4% |
+| 4 | 16/16 | 587.98 → 598.99 ms | 2.19 → 1.96 s | 0.0936 → 0.0799 | 10.69x → 12.52x | +17.1% |
+| 8 | 16/16 | 1.03 → 1.01 s | 3.92 → 2.98 s | 0.0804 → 0.0657 | 12.43x → 15.23x | +22.5% |
+| 16 | 16/16 | 2.04 → 2.05 s | 7.21 → 5.33 s | 0.0773 → 0.0581 | 12.94x → 17.21x | **+33.0%** |
+
+优化保留 15-token 首段，因此 16 并发 TTFA 基本不变；后续块从
+15/25/50… 调整为 15/50/100…，典型请求的 Flow/Vocoder 调用约从 4 次降到
+3 次。实例扩展 A/B 还发现 10 Streaming BLS + 4 Vocoder 会因单卡上下文竞争
+降低吞吐，所以最终默认仍为 2 + 2，并将 Public SSE 并发上限独立提高到 10。
+
+### 最终版本 TTFA 分位数
+
+| gRPC 并发 | Avg | P50 | P90 | P95 | P99 | 系统 RTF | 音频吞吐 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 242.29 ms | 240.09 ms | 251.60 ms | 258.27 ms | 268.63 ms | 0.1343 | 7.44x |
+| 2 | 333.08 ms | 326.31 ms | 377.24 ms | 389.08 ms | 415.97 ms | 0.1001 | 9.99x |
+| 4 | 598.99 ms | 455.81 ms | 1040.48 ms | 1137.02 ms | 1151.81 ms | 0.0799 | 12.52x |
+| 8 | 1008.40 ms | 996.94 ms | 1293.47 ms | 1396.22 ms | 1408.55 ms | 0.0657 | 15.23x |
+| 16 | 2048.85 ms | 2053.21 ms | 2914.14 ms | 3011.77 ms | 3030.66 ms | **0.0581** | **17.21x** |
+
+Public SSE 还包含 Gateway 限流、FFmpeg 语速/音量处理、24kHz→16kHz 重采样
+和 Base64 传输：
+
+| SSE 并发 | 成功 | TTFA Avg | TTFA P95 | Queue Avg | Queue P95 | 系统 RTF | 音频吞吐 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 4 | 16/16 | 479.79 ms | 629.44 ms | 1.21 ms | 3.10 ms | 0.0777 | 12.86x |
+| 8 | 16/16 | 1070.94 ms | 1446.97 ms | 2.37 ms | 4.95 ms | 0.0700 | 14.28x |
+| 16 | 16/16 | 2638.34 ms | 4948.09 ms | 1378.66 ms | 3940.05 ms | 0.0654 | 15.30x |
+
+16 并发超过服务端 10 路 SSE 上限，因此排队上升是有意背压，不是请求失败。
+FFmpeg 输入探测缓冲已关闭；实测单请求中 Triton 首段 490.3 ms、SSE 首段
+492.5 ms，音频后处理首段仅增加 2.2 ms。
+
 ## 官方发布基线与 A100 边界
 
 截至上游 commit `074ca6d`，FunAudioLLM 的
@@ -152,7 +207,7 @@ A100 上的复测。它用于隔离本项目配置优化带来的变化，不冒
 
 | 官方硬件 / 模式 | 并发或 Batch | 官方结果 |
 | --- | ---: | --- |
-| L20，流式首包 | 并发 4 | Average 750.42 ms；P50 740.31 ms；P95 977.55 ms；P99 1002.37 ms |
+| L20，流式首包 | 并发 4 | Average 750.42 ms；P50 740.31 ms；P90 941.05 ms；P95 977.55 ms；P99 1002.37 ms |
 | L20，离线流水线 | Batch 1 | RTF 0.1091 |
 | L20，离线流水线 | Batch 2 | RTF 0.0822 |
 | L20，离线流水线 | Batch 4 | RTF 0.0630 |
@@ -194,6 +249,25 @@ python3 scripts/benchmark.py \
 Benchmark 工具会读取服务实际返回的 WAV 数据长度计算音频时长，并兼容
 流式 WAV 中未知 `data` chunk 长度的情况。JSON 报告内会记录官方统计口径
 名称、来源链接和公式。
+
+复现流式直连 gRPC 与 Public SSE：
+
+```bash
+python3 scripts/benchmark_streaming.py \
+  --transport both \
+  --grpc-url 127.0.0.1:18001 \
+  --sse-url http://127.0.0.1:18000/tts/stream \
+  --speaker-id common_speaker_1 \
+  --concurrency 1,2,4,8,16 \
+  --requests 16 \
+  --warmup 2 \
+  --output-json streaming-benchmark.json
+```
+
+`grpc` 结果直接对齐官方的“提交 gRPC → 第一段非空 waveform”边界；`sse`
+结果是开发者实际使用 18000 接口时看到的首段，并额外统计 `queueMs`。官方
+L20 使用 `yuekai/seed_tts_cosy2` 原始参考音频数据集，本页 A100 使用已注册
+Speaker 和固定文本，所以只能分别看绝对结果，不能宣称跨硬件或跨数据集倍数。
 
 复现上游默认核心参数 A100 基线：
 
@@ -247,6 +321,7 @@ COSYVOICE_TTS_SEGMENT_CONCURRENCY=2 \
 
 - `COSYVOICE_KV_CACHE_FRACTION`
 - `COSYVOICE_PRO_BLS_INSTANCES`
+- `COSYVOICE_STREAMING_BLS_INSTANCES`
 - `COSYVOICE_LEGACY_BLS_INSTANCES`
 - `COSYVOICE_TOKEN2WAV_INSTANCES`
 - `COSYVOICE_VOCODER_INSTANCES`
@@ -256,6 +331,9 @@ COSYVOICE_TTS_SEGMENT_CONCURRENCY=2 \
 - `COSYVOICE_VOCODER_BATCH_QUEUE_DELAY_US`
 - `COSYVOICE_TTS_INFERENCE_CONCURRENCY`
 - `COSYVOICE_TTS_SEGMENT_CONCURRENCY`
+- `COSYVOICE_TTS_STREAMING_CONCURRENCY`
+- `COSYVOICE_STREAMING_CHUNK_GROWTH_OFFSET`（`0` 保留低延迟分块节奏，`1`
+  减少高并发下的后续 Flow/Vocoder 调用）
 - `COSYVOICE_PRO_EAGER_CUDA_INIT`
 
 实例数会显著影响显存。小于 80 GB 的 GPU 应先使用 `balanced`，每次只增加

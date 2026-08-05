@@ -46,6 +46,7 @@ VOCODER_INSTANCE_COUNT=""
 INFERENCE_CONCURRENCY=""
 SEGMENT_CONCURRENCY=""
 STREAMING_CONCURRENCY=""
+STREAMING_CHUNK_GROWTH_OFFSET=""
 EAGER_CUDA_INIT=""
 FLOW_BATCH_SIZE=""
 FLOW_BATCH_QUEUE_DELAY_US=""
@@ -135,7 +136,8 @@ resolve_performance_config() {
             VOCODER_INSTANCE_COUNT="${COSYVOICE_VOCODER_INSTANCES:-2}"
             INFERENCE_CONCURRENCY="${COSYVOICE_TTS_INFERENCE_CONCURRENCY:-12}"
             SEGMENT_CONCURRENCY="${COSYVOICE_TTS_SEGMENT_CONCURRENCY:-2}"
-            STREAMING_CONCURRENCY="${COSYVOICE_TTS_STREAMING_CONCURRENCY:-2}"
+            STREAMING_CONCURRENCY="${COSYVOICE_TTS_STREAMING_CONCURRENCY:-10}"
+            STREAMING_CHUNK_GROWTH_OFFSET="${COSYVOICE_STREAMING_CHUNK_GROWTH_OFFSET:-1}"
             EAGER_CUDA_INIT="${COSYVOICE_PRO_EAGER_CUDA_INIT:-true}"
             FLOW_BATCH_SIZE="${COSYVOICE_FLOW_BATCH_SIZE:-${COSYVOICE_ACOUSTIC_BATCH_SIZE:-1}}"
             FLOW_BATCH_QUEUE_DELAY_US="${COSYVOICE_FLOW_BATCH_QUEUE_DELAY_US:-${COSYVOICE_ACOUSTIC_BATCH_QUEUE_DELAY_US:-0}}"
@@ -151,7 +153,8 @@ resolve_performance_config() {
             VOCODER_INSTANCE_COUNT="${COSYVOICE_VOCODER_INSTANCES:-1}"
             INFERENCE_CONCURRENCY="${COSYVOICE_TTS_INFERENCE_CONCURRENCY:-10}"
             SEGMENT_CONCURRENCY="${COSYVOICE_TTS_SEGMENT_CONCURRENCY:-2}"
-            STREAMING_CONCURRENCY="${COSYVOICE_TTS_STREAMING_CONCURRENCY:-2}"
+            STREAMING_CONCURRENCY="${COSYVOICE_TTS_STREAMING_CONCURRENCY:-4}"
+            STREAMING_CHUNK_GROWTH_OFFSET="${COSYVOICE_STREAMING_CHUNK_GROWTH_OFFSET:-0}"
             EAGER_CUDA_INIT="${COSYVOICE_PRO_EAGER_CUDA_INIT:-false}"
             FLOW_BATCH_SIZE="${COSYVOICE_FLOW_BATCH_SIZE:-${COSYVOICE_ACOUSTIC_BATCH_SIZE:-1}}"
             FLOW_BATCH_QUEUE_DELAY_US="${COSYVOICE_FLOW_BATCH_QUEUE_DELAY_US:-${COSYVOICE_ACOUSTIC_BATCH_QUEUE_DELAY_US:-0}}"
@@ -183,6 +186,11 @@ resolve_performance_config() {
             exit 1
         fi
     done
+    if [[ "${STREAMING_CHUNK_GROWTH_OFFSET}" != "0" &&
+          "${STREAMING_CHUNK_GROWTH_OFFSET}" != "1" ]]; then
+        log_err "COSYVOICE_STREAMING_CHUNK_GROWTH_OFFSET 仅支持 0 或 1"
+        exit 1
+    fi
 
     case "${FLOW_BATCH_SIZE}" in
         1)
@@ -629,8 +637,12 @@ sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${PRO_BLS_INSTANCE_COUNT}/' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/config.pbtxt'
 sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${STREAMING_BLS_INSTANCE_COUNT}/' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3ProStreaming/config.pbtxt'
+sed -i -E '/key:[[:space:]]*"streaming_chunk_growth_offset"/,/}/s/string_value:[[:space:]]*"[01]"/string_value: "${STREAMING_CHUNK_GROWTH_OFFSET}"/' \
+  '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3ProStreaming/config.pbtxt'
 sed -i -E '/key:[[:space:]]*\"eager_cuda_init\"/,/}/s/string_value:[[:space:]]*\"(true|false)\"/string_value: \"${EAGER_CUDA_INIT}\"/' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/config.pbtxt'
+sed -i -E '/key:[[:space:]]*\"eager_cuda_init\"/,/}/s/string_value:[[:space:]]*\"(true|false)\"/string_value: \"${EAGER_CUDA_INIT}\"/' \
+  '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3ProStreaming/config.pbtxt'
 sed -i -E '/key:[[:space:]]*\"flow_batching_enabled\"/,/}/s/string_value:[[:space:]]*\"(true|false)\"/string_value: \"${FLOW_BATCHING_ENABLED}\"/' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/config.pbtxt'
 sed -i -E '/key:[[:space:]]*\"vocoder_batching_enabled\"/,/}/s/string_value:[[:space:]]*\"(true|false)\"/string_value: \"${VOCODER_BATCHING_ENABLED}\"/' \
@@ -655,6 +667,7 @@ sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${VOCODER_INSTANCE_COUNT}/' \
 
     log_ok "模型覆盖文件部署完成"
     log_info "实例配置：Pro BLS=${PRO_BLS_INSTANCE_COUNT}，Streaming BLS=${STREAMING_BLS_INSTANCE_COUNT}，Legacy BLS=${LEGACY_BLS_INSTANCE_COUNT}，token2wav=${TOKEN2WAV_INSTANCE_COUNT}，vocoder=${VOCODER_INSTANCE_COUNT}，eager CUDA=${EAGER_CUDA_INIT}"
+    log_info "流式后续块增长偏移：${STREAMING_CHUNK_GROWTH_OFFSET}"
     log_info "Flow Batch：max=${FLOW_BATCH_SIZE}，preferred=[${FLOW_PREFERRED_BATCH_SIZES}]，queue=${FLOW_BATCH_QUEUE_DELAY_US}us"
     log_info "Vocoder Batch：max=${VOCODER_BATCH_SIZE}，preferred=[${VOCODER_PREFERRED_BATCH_SIZES}]，queue=${VOCODER_BATCH_QUEUE_DELAY_US}us"
     local mounted_store

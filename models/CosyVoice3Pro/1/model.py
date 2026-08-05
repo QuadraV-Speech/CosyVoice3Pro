@@ -68,8 +68,13 @@ class TritonPythonModel:
         self.token_hop_len = 15
         self.token_mel_ratio = 2
         self.dynamic_chunk_strategy = model_params.get("dynamic_chunk_strategy", "exponential")
+        self.streaming_chunk_growth_offset = int(
+            model_params.get("streaming_chunk_growth_offset", "0"))
+        if self.streaming_chunk_growth_offset not in (0, 1):
+            raise ValueError("streaming_chunk_growth_offset must be 0 or 1")
         self.logger.log_info(f"CosyVoice3 BLS initialized, decoupled={self.decoupled}, "
-                             f"chunk_strategy={self.dynamic_chunk_strategy}")
+                             f"chunk_strategy={self.dynamic_chunk_strategy}, "
+                             f"chunk_growth_offset={self.streaming_chunk_growth_offset}")
 
         # HTTP client for remote LLM (trtllm-serve default port: 8000)
         self.http_client = httpx.AsyncClient()
@@ -339,7 +344,9 @@ class TritonPythonModel:
         mel = pb_utils.get_output_tensor_by_name(inference_response, 'mel')
         return torch.utils.dlpack.from_dlpack(mel.to_dlpack())
 
-    async def forward_vocoder(self, mel, finalize):
+    async def forward_vocoder(
+        self, mel, finalize, request_id="", priority=100,
+    ):
         """Async BLS call to vocoder. Returns speech tensor."""
         if mel.dim() == 2:
             mel = mel.unsqueeze(0)  # [80, T] -> [1, 80, T]
@@ -358,6 +365,8 @@ class TritonPythonModel:
             model_name='vocoder',
             requested_output_names=['tts_speech'],
             inputs=[mel_pb, mel_len_pb, finalize_pb],
+            request_id=request_id,
+            parameters={"priority": priority},
         )
 
         inference_response = await inference_request.async_exec()
@@ -640,7 +649,12 @@ class TritonPythonModel:
                         accumulated_mel = torch.cat([accumulated_mel, mel_chunk], dim=2)
 
                     # Call vocoder
-                    speech = await self.forward_vocoder(accumulated_mel, finalize=False)
+                    speech = await self.forward_vocoder(
+                        accumulated_mel,
+                        finalize=False,
+                        request_id=request_id,
+                        priority=chunk_index + 1,
+                    )
 
                     # Extract new speech
                     new_speech = speech[:, speech_offset:]
@@ -657,7 +671,12 @@ class TritonPythonModel:
 
                     # Dynamic chunk strategy
                     if self.dynamic_chunk_strategy == "exponential":
-                        this_token_hop_len = self.token_frame_rate * (2 ** chunk_index)
+                        this_token_hop_len = self.token_frame_rate * (
+                            2 ** (
+                                chunk_index
+                                + self.streaming_chunk_growth_offset
+                            )
+                        )
                     elif self.dynamic_chunk_strategy == "time_based":
                         cost_time = time.time() - start_time
                         duration = token_offset / self.token_frame_rate
@@ -696,7 +715,12 @@ class TritonPythonModel:
                 else:
                     accumulated_mel = torch.cat([accumulated_mel, mel_chunk], dim=2)
 
-                speech = await self.forward_vocoder(accumulated_mel, finalize=True)
+                speech = await self.forward_vocoder(
+                    accumulated_mel,
+                    finalize=True,
+                    request_id=request_id,
+                    priority=chunk_index + 1,
+                )
 
                 new_speech = speech[:, speech_offset:]
                 if new_speech.shape[1] > 0:

@@ -322,6 +322,16 @@ sf.write(
 直连 gRPC 适合模型调试，输入 Tensor 与本章离线模型完全一致，输出为多段
 24kHz FP32 `waveform`。
 
+Gateway 生命周期内复用一个异步 gRPC Channel，但每个请求保持独立的
+Decoupled response iterator。Flow 与 Vocoder 子请求使用同一 `request_id`，
+并按流式分块序号设置 Triton 优先级：首段优先于后续段，避免高并发时新请求
+的首包被旧请求尾段长期阻塞。Vocoder 仍保持 Batch 1；实际 A/B 表明单卡上
+盲目增加实例或强制动态 Batch 会增加上下文竞争。
+
+官方基准同样通过 Triton gRPC 测量从提交请求到第一段非空 waveform 的时间。
+本仓库的 `scripts/benchmark_streaming.py` 可分别压测直连 gRPC 和 Public SSE，
+后者还会统计 Gateway 的 `queueMs`。
+
 ## 9. Speaker 缓存与持久化
 
 Registry 默认将声纹保存到：

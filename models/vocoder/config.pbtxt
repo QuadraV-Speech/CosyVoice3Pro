@@ -5,6 +5,8 @@ max_batch_size: 1
 dynamic_batching {
   preferred_batch_size: [1]
   max_queue_delay_microseconds: 0
+  priority_levels: 100
+  default_priority_level: 100
 }
 
 parameters [
