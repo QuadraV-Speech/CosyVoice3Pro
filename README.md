@@ -17,7 +17,7 @@
 [![TensorRT--LLM](https://img.shields.io/badge/TensorRT--LLM-Accelerated-76B900)](https://github.com/NVIDIA/TensorRT-LLM)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![API](https://img.shields.io/badge/HTTP_API-%3A18000-7C3AED)](#api-入口)
-[![A100 system RTF](https://img.shields.io/badge/A100_system_RTF-0.0322-C8F45D)](docs/benchmark.md)
+[![A100 streaming RTF](https://img.shields.io/badge/A100_streaming_RTF-0.0586-C8F45D)](docs/benchmark.md)
 
 [English](README_EN.md) ·
 [快速开始](#快速开始) ·
@@ -94,16 +94,18 @@ CosyVoice3Pro 是社区服务化增强版，并非 FunAudioLLM 官方发行版�
 
 ### Pro 流式高并发
 
-官方同款 gRPC 首段计时边界；固定已注册 Speaker、每档 16 个请求：
+新增官方兼容评测器：相同 `seed_tts_cosy2/wenetspeech4tts` 数据、原始参考
+音频、10 秒 padding、每任务一条持久 gRPC stream 和相同 TTFA 边界。
 
-| A100 gRPC 并发 | 成功 | TTFA Avg | P50 | P95 | 系统 RTF | 音频吞吐 |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 4 | 16/16 | 598.99 ms | 455.81 ms | 1137.02 ms | 0.0799 | 12.52x |
-| 8 | 16/16 | 1008.40 ms | 996.94 ms | 1396.22 ms | 0.0657 | 15.23x |
-| 16 | 16/16 | 2048.85 ms | 2053.21 ms | 3011.77 ms | **0.0581** | **17.21x** |
+| 流式场景 | 并发 | 成功 | TTFA Avg | TTFA P95 | 系统 RTF | 音频吞吐 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A100 raw prompt 稳态 | 4 | 26/26 | 622.25 ms | 906.20 ms | 0.1030 | 9.71x |
+| A100 Public SSE 生产验收 | 16 | **100/100** | 1881.25 ms | **2281.99 ms** | **0.0586** | **17.05x** |
 
-16 并发较优化前音频吞吐提升 **33.0%**，平均完整生成耗时降低 **26.0%**；
-Public SSE 默认允许 10 路并发，并返回独立排队与首包指标。
+`streaming` Profile 在 registered Speaker 并发 16 A/B 中将 TTFA 平均降低
+**16.2%**、P95 降低 **28.2%**。Public SSE 默认允许 16 路并发，提供排队
+超时和断连清理；24 路客户端在首包前断开后，FFmpeg 残留进程为 0。
+官方数据来自 L20，Pro 实测来自共享 A100，不能据此宣称跨硬件软件倍数。
 
 ### Pro 完整音频高并发
 
@@ -115,7 +117,7 @@ Public SSE 默认允许 10 路并发，并返回独立排队与首包指标。
 
 完整变量、口径和复现命令见[性能基准文档](docs/benchmark.md)。
 Flow/Vocoder 动态 Batch 已提供实验开关；A100 默认仍采用实测更快、更省显存
-的静态 Batch 1 双实例配置。
+的静态 Batch 1，并按流式负载配置 2 个 Flow / 4 个 Vocoder 实例。
 
 ## 系统架构
 

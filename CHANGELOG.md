@@ -2,6 +2,31 @@
 
 All notable project changes are documented here.
 
+## [1.9.0] - 2026-08-05
+
+### Added
+
+- Official-compatible streaming benchmark using `seed_tts_cosy2`, one
+  persistent gRPC stream per task, raw prompt audio, upstream input padding,
+  upstream TTFA boundary, and per-stage Triton statistics.
+- A measured `streaming` production profile for 80 GB GPUs and configurable
+  first-chunk token count.
+- SSE admission queue timeout with a structured `STREAM_BUSY` error event.
+
+### Changed
+
+- The 80 GB `auto` profile now prioritizes streaming with two Streaming BLS,
+  two Flow, and four Vocoder instances; offline-heavy deployments can select
+  `throughput` explicitly.
+- FFmpeg starts only after Triton emits its first audio block, avoiding a
+  subprocess storm while requests are waiting for TTFA.
+- Disconnect cleanup releases capacity and terminates post-processing before
+  waiting for a slow gRPC generator.
+- Client cancellation now propagates into the Decoupled BLS loop so queued
+  Flow/Vocoder work stops at the next stage boundary.
+- The production A100 SSE soak completed 100/100 requests at concurrency 16
+  with 17.05x audio throughput and 2.28 s TTFA P95.
+
 ## [1.8.0] - 2026-08-05
 
 ### Added
@@ -116,6 +141,7 @@ All notable project changes are documented here.
 - Per-speaker default Prompt persona and per-request override.
 - Server-side speed, volume, chunking, and audio-format post-processing.
 
+[1.9.0]: https://github.com/QuadraV-Speech/CosyVoice3Pro/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/QuadraV-Speech/CosyVoice3Pro/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/QuadraV-Speech/CosyVoice3Pro/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/QuadraV-Speech/CosyVoice3Pro/compare/v1.6.0...v1.6.1

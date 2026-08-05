@@ -135,13 +135,19 @@ bash manage.sh restart
 
 ## 7. 并发性能配置
 
-默认 `COSYVOICE_PERFORMANCE_PROFILE=auto`。80GB GPU 自动启用双
-token2wav、双 vocoder 的 `throughput` profile，其他 GPU 使用保守的
-`balanced` profile。声学模型保持 Batch 1；实验性的 Flow/Vocoder 动态
+默认 `COSYVOICE_PERFORMANCE_PROFILE=auto`。80GB GPU 自动启用实测的
+`streaming` profile：2 个 Streaming BLS、2 个 token2wav、4 个 vocoder、
+16 路 SSE；其他 GPU 使用保守的 `balanced` profile。离线请求为主时可显式
+选择 `throughput`。声学模型保持 Batch 1；实验性的 Flow/Vocoder 动态
 Batch 需显式开启，变量、首次 TensorRT 构建和 A/B 方法见
 [性能基准文档](benchmark.md#声学动态-batch实验)。
 
 手动切换并重启：
+
+```bash
+COSYVOICE_PERFORMANCE_PROFILE=streaming \
+  bash manage.sh restart
+```
 
 ```bash
 COSYVOICE_PERFORMANCE_PROFILE=throughput \
@@ -157,9 +163,10 @@ COSYVOICE_PERFORMANCE_PROFILE=balanced \
 `X-CosyVoice-Encode-Ms`，可用于区分模型排队和音频编码耗时。实例数、
 显存参数、压力测试和调优方法见[性能基准文档](benchmark.md)。
 
-`throughput` 的 Public SSE 并发上限为 10，`balanced` 为 4；独立
-Decoupled BLS 默认保持 2 个。实测中盲目增加 BLS/Vocoder 实例会增加单卡
-GPU 上下文竞争，实例数应通过压力测试调整，而不是与并发上限一一对应：
+`streaming` 的 Public SSE 并发上限为 16，`throughput` 为 10，`balanced`
+为 4；独立 Decoupled BLS 默认保持 2 个。实测中盲目增加 BLS/Flow/Vocoder
+实例会增加单卡 GPU 上下文竞争，实例数应通过压力测试调整，而不是与并发
+上限一一对应：
 
 ```bash
 COSYVOICE_STREAMING_BLS_INSTANCES=4 \
@@ -168,13 +175,18 @@ COSYVOICE_TTS_STREAMING_CONCURRENCY=8 \
 ```
 
 `COSYVOICE_TTS_STREAM_TIMEOUT_SECONDS` 控制单条 gRPC 流超时，默认 300 秒。
+`COSYVOICE_TTS_STREAM_QUEUE_TIMEOUT_SECONDS` 控制 SSE 获取并发槽的最长等待，
+默认 15 秒；超时会发送 `STREAM_BUSY` 事件，避免突发流量无限排队。
 SSE 的 `queue` 事件和 `done.queueMs` 可直接观察 Gateway 限流等待；
 `done.tritonFirstAudioMs` 与 `done.postprocessFirstAudioMs` 用于拆分模型与音频
 后处理首包耗时。
 
-`throughput` 默认设置 `COSYVOICE_STREAMING_CHUNK_GROWTH_OFFSET=1`：第一段
-仍为 15 个语音 Token，后续块按 50、100… 增长，减少重复 Flow/Vocoder
-计算。对分块间隔更敏感时可设为 `0`，恢复 15、25、50… 的保守节奏。
+`streaming` 和 `throughput` 默认设置
+`COSYVOICE_STREAMING_CHUNK_GROWTH_OFFSET=1`：第一段仍为 15 个语音 Token，
+后续块按 50、100… 增长，减少重复 Flow/Vocoder 计算。首段可用
+`COSYVOICE_STREAMING_FIRST_CHUNK_TOKENS` 调整；受控测试中 12 token 会让
+高并发请求更早争抢 Flow，默认仍保留 15。对分块间隔更敏感时可把增长偏移
+设为 `0`，恢复 15、25、50… 的保守节奏。
 
 ## 8. 仓库结构
 

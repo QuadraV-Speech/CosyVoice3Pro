@@ -17,7 +17,7 @@ with a reusable Speaker Registry, developer-friendly API, and Web console.
 [![TensorRT--LLM](https://img.shields.io/badge/TensorRT--LLM-Accelerated-76B900)](https://github.com/NVIDIA/TensorRT-LLM)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![HTTP API](https://img.shields.io/badge/HTTP_API-%3A18000-7C3AED)](#public-api)
-[![A100 system RTF](https://img.shields.io/badge/A100_system_RTF-0.0322-C8F45D)](docs/benchmark.md)
+[![A100 streaming RTF](https://img.shields.io/badge/A100_streaming_RTF-0.0586-C8F45D)](docs/benchmark.md)
 
 [中文](README.md) ·
 [Quick Start](#quick-start) ·
@@ -95,18 +95,19 @@ directly comparable with Pro's end-to-end A100 HTTP benchmark.
 
 ### Pro streaming concurrency
 
-The direct gRPC timer follows the upstream first-nonempty-waveform boundary;
-each profile uses 16 requests with one registered speaker and fixed text:
+The official-compatible benchmark uses the same `seed_tts_cosy2` data, raw
+prompt audio, 10-second padding, persistent gRPC streams, and TTFA boundary.
 
-| A100 gRPC concurrency | Success | TTFA Avg | P50 | P95 | System RTF | Audio throughput |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 4 | 16/16 | 598.99 ms | 455.81 ms | 1137.02 ms | 0.0799 | 12.52x |
-| 8 | 16/16 | 1008.40 ms | 996.94 ms | 1396.22 ms | 0.0657 | 15.23x |
-| 16 | 16/16 | 2048.85 ms | 2053.21 ms | 3011.77 ms | **0.0581** | **17.21x** |
+| Streaming path | Concurrency | Success | TTFA Avg | TTFA P95 | System RTF | Audio throughput |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A100 raw-prompt steady state | 4 | 26/26 | 622.25 ms | 906.20 ms | 0.1030 | 9.71x |
+| A100 Public SSE production soak | 16 | **100/100** | 1881.25 ms | **2281.99 ms** | **0.0586** | **17.05x** |
 
-At concurrency 16, audio throughput improves **33.0%** and average full
-generation latency falls **26.0%** versus the pre-optimization baseline. Public
-SSE accepts 10 concurrent streams by default and reports queue time separately.
+In a registered-speaker concurrency-16 A/B, the `streaming` profile reduces
+average TTFA by **16.2%** and P95 by **28.2%**. Public SSE accepts 16 streams,
+has bounded queueing, and leaves zero FFmpeg processes after 24 clients leave
+before first audio. L20 and A100 numbers are cross-hardware context, not a
+claimed software-only speedup.
 
 ### Pro full-audio concurrency
 

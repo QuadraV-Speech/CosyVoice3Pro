@@ -72,6 +72,12 @@ parameters [
     }
   },
   {
+    key: "streaming_first_chunk_tokens"
+    value: {
+      string_value: "15"
+    }
+  },
+  {
     key: "streaming_chunk_growth_offset"
     value: {
       string_value: "1"

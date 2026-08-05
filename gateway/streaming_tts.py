@@ -59,10 +59,13 @@ STREAMING_CONCURRENCY = positive_env(
     "COSYVOICE_TTS_STREAMING_CONCURRENCY", 4)
 STREAM_TIMEOUT_SECONDS = positive_env(
     "COSYVOICE_TTS_STREAM_TIMEOUT_SECONDS", 300)
+STREAM_QUEUE_TIMEOUT_SECONDS = positive_env(
+    "COSYVOICE_TTS_STREAM_QUEUE_TIMEOUT_SECONDS", 15)
 MAX_STREAM_TEXT_LENGTH = 1000
 PCM_READ_BYTES = 8192
 PCM_EVENT_BYTES = 6400  # 200 ms at 16 kHz mono PCM16.
 SSE_KEEPALIVE_SECONDS = 10
+CLIENT_DISCONNECT_POLL_SECONDS = 0.25
 
 _streaming_semaphore = asyncio.Semaphore(STREAMING_CONCURRENCY)
 
@@ -197,23 +200,32 @@ async def _feed_ffmpeg(
     request,
     inference,
     stats,
+    first_waveform,
 ):
     cancelled = False
+
+    async def write_waveform(waveform):
+        if await request.is_disconnected():
+            stats["disconnected"] = True
+            return False
+        stats["triton_chunks"] += 1
+        stats["input_samples"] += int(waveform.size)
+        if stats["first_triton_ms"] is None:
+            stats["first_triton_ms"] = (
+                time.perf_counter() - stats["started_at"]
+            ) * 1000
+        process.stdin.write(
+            np.ascontiguousarray(waveform, dtype=np.float32).tobytes()
+        )
+        await process.stdin.drain()
+        return True
+
     try:
+        if not await write_waveform(first_waveform):
+            return
         async for waveform in inference:
-            if await request.is_disconnected():
-                stats["disconnected"] = True
+            if not await write_waveform(waveform):
                 return
-            stats["triton_chunks"] += 1
-            stats["input_samples"] += int(waveform.size)
-            if stats["first_triton_ms"] is None:
-                stats["first_triton_ms"] = (
-                    time.perf_counter() - stats["started_at"]
-                ) * 1000
-            process.stdin.write(
-                np.ascontiguousarray(waveform, dtype=np.float32).tobytes()
-            )
-            await process.stdin.drain()
         if stats["triton_chunks"] == 0:
             raise RuntimeError("Triton 未返回任何音频分块")
     except asyncio.CancelledError:
@@ -296,10 +308,32 @@ async def _stream_sse(
         "speed": speed,
         "volume": volume,
         "concurrencyLimit": STREAMING_CONCURRENCY,
+        "queueTimeoutSeconds": STREAM_QUEUE_TIMEOUT_SECONDS,
     })
 
     try:
-        await _streaming_semaphore.acquire()
+        try:
+            await asyncio.wait_for(
+                _streaming_semaphore.acquire(),
+                timeout=STREAM_QUEUE_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            queue_ms = (time.perf_counter() - started_at) * 1000
+            logger.warning(
+                "streaming tts queue timeout request_id=%s speaker=%s "
+                "queue_ms=%.1f",
+                request_id,
+                resolved_speaker,
+                queue_ms,
+            )
+            yield _sse_event("error", {
+                "requestId": request_id,
+                "code": "STREAM_BUSY",
+                "detail": "流式服务繁忙，请稍后重试",
+                "queueMs": round(queue_ms, 1),
+                "retryAfterSeconds": 1,
+            })
+            return
         slot_acquired = True
         if await request.is_disconnected():
             return
@@ -309,6 +343,26 @@ async def _stream_sse(
             "queueMs": round(queue_ms, 1),
             "concurrencyLimit": STREAMING_CONCURRENCY,
         })
+        inference = _triton_waveforms(
+            client=request.app.state.streaming_grpc_client,
+            text=text,
+            prompt=prompt,
+            speaker_id=speaker_id,
+            reference_waveform=reference_waveform,
+            reference_text=reference_text,
+            request_id=request_id,
+        )
+        try:
+            first_waveform = await anext(inference)
+        except StopAsyncIteration as exc:
+            raise RuntimeError("Triton 未返回任何音频分块") from exc
+        if await request.is_disconnected():
+            await inference.aclose()
+            stats["disconnected"] = True
+            return
+
+        # Defer FFmpeg until Triton has produced audio. A client that leaves
+        # while waiting for TTFA therefore creates no subprocess at all.
         process = await asyncio.create_subprocess_exec(
             "ffmpeg",
             "-hide_banner",
@@ -329,30 +383,34 @@ async def _stream_sse(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        inference = _triton_waveforms(
-            client=request.app.state.streaming_grpc_client,
-            text=text,
-            prompt=prompt,
-            speaker_id=speaker_id,
-            reference_waveform=reference_waveform,
-            reference_text=reference_text,
-            request_id=request_id,
-        )
         producer = asyncio.create_task(
-            _feed_ffmpeg(process, request, inference, stats)
+            _feed_ffmpeg(
+                process,
+                request,
+                inference,
+                stats,
+                first_waveform,
+            )
         )
 
         remainder = b""
         pending_pcm = b""
+        next_keepalive_at = time.perf_counter() + SSE_KEEPALIVE_SECONDS
         while True:
             if read_task is None:
                 read_task = asyncio.create_task(
                     process.stdout.read(PCM_READ_BYTES)
                 )
             done, _ = await asyncio.wait(
-                {read_task}, timeout=SSE_KEEPALIVE_SECONDS)
+                {read_task}, timeout=CLIENT_DISCONNECT_POLL_SECONDS)
             if not done:
-                yield ": keep-alive\n\n"
+                if await request.is_disconnected():
+                    stats["disconnected"] = True
+                    return
+                if time.perf_counter() >= next_keepalive_at:
+                    yield ": keep-alive\n\n"
+                    next_keepalive_at = (
+                        time.perf_counter() + SSE_KEEPALIVE_SECONDS)
                 continue
 
             chunk = read_task.result()
@@ -419,17 +477,31 @@ async def _stream_sse(
             "detail": str(exc),
         })
     finally:
+        # Cancellation can happen inside Starlette's cancelled task group.
+        # Perform capacity/resource release synchronously before any await so
+        # a slow gRPC generator cannot strand an FFmpeg process or semaphore
+        # slot after the client has disconnected.
         if read_task is not None:
             read_task.cancel()
+        if producer is not None:
+            producer.cancel()
+        if process is not None and process.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                process.terminate()
+        if slot_acquired:
+            _streaming_semaphore.release()
+            slot_acquired = False
+
+        if read_task is not None:
             with contextlib.suppress(asyncio.CancelledError):
                 await read_task
         if producer is not None:
-            producer.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await producer
-        await _terminate_process(process)
-        if slot_acquired:
-            _streaming_semaphore.release()
+            with contextlib.suppress(
+                asyncio.CancelledError, asyncio.TimeoutError, Exception,
+            ):
+                await asyncio.wait_for(producer, timeout=2)
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await _terminate_process(process)
 
 
 @router.post("/tts/stream")

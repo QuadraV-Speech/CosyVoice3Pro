@@ -1,0 +1,97 @@
+{
+  "date": "2026-08-05",
+  "gpu": "NVIDIA A100-SXM4-80GB",
+  "driver": "550.127.08",
+  "sharedGpuNote": "An existing service used approximately 15.2 GiB during controlled A/B runs.",
+  "upstreamCosyVoiceCommit": "074ca6d",
+  "officialReference": {
+    "hardware": "single NVIDIA L20",
+    "dataset": "yuekai/seed_tts_cosy2",
+    "split": "wenetspeech4tts",
+    "concurrency": 4,
+    "ttfaMs": {
+      "average": 750.42,
+      "p50": 740.31,
+      "p90": 941.05,
+      "p95": 977.55,
+      "p99": 1002.37
+    }
+  },
+  "officialCompatibleA100": {
+    "clientTopology": "persistent-sync-grpc-stream-per-task",
+    "rawPromptPerRequest": true,
+    "inputPaddingSeconds": 10,
+    "requests": 26,
+    "concurrency": 4,
+    "coldMixedCache": {
+      "success": 26,
+      "ttfaAverageMs": 944.71,
+      "ttfaP95Ms": 2482.50,
+      "systemRtf": 0.113917,
+      "audioThroughput": 8.7783
+    },
+    "steadyCache": {
+      "success": 26,
+      "ttfaAverageMs": 622.25,
+      "ttfaP95Ms": 906.20,
+      "systemRtf": 0.103036,
+      "audioThroughput": 9.7054
+    }
+  },
+  "registeredSpeakerA100": {
+    "speakerId": "common_speaker_1",
+    "datasetTargetTexts": "yuekai/seed_tts_cosy2/wenetspeech4tts",
+    "beforeProfile": {
+      "proBls": 12,
+      "streamingBls": 2,
+      "legacyBls": 2,
+      "flow": 2,
+      "vocoder": 2
+    },
+    "afterProfile": {
+      "name": "streaming",
+      "proBls": 2,
+      "streamingBls": 2,
+      "legacyBls": 1,
+      "flow": 2,
+      "vocoder": 4,
+      "firstChunkTokens": 15,
+      "sseConcurrency": 16
+    },
+    "concurrency16": {
+      "before": {
+        "ttfaAverageMs": 1830.47,
+        "ttfaP95Ms": 3050.10,
+        "audioThroughput": 15.0088
+      },
+      "afterMedianOfThree": {
+        "ttfaAverageMs": 1533.39,
+        "ttfaP95Ms": 2189.18,
+        "audioThroughput": 15.2286
+      },
+      "improvement": {
+        "ttfaAveragePercent": 16.2,
+        "ttfaP95Percent": 28.2
+      }
+    }
+  },
+  "publicSseProductionSoak": {
+    "concurrency": 16,
+    "requests": 100,
+    "success": 100,
+    "failed": 0,
+    "ttfaAverageMs": 1881.25,
+    "ttfaP95Ms": 2281.99,
+    "queueP95Ms": 5.41,
+    "systemRtf": 0.058638,
+    "audioThroughput": 17.0538,
+    "ffmpegProcessesAfterRun": 0
+  },
+  "disconnectRegression": {
+    "concurrentRequests": 24,
+    "clientDisconnectAfterSeconds": 0.5,
+    "ffmpegProcessesBefore": 0,
+    "ffmpegProcessesAfterThreeSeconds": 0,
+    "serviceReadyAfterTest": true
+  }
+}

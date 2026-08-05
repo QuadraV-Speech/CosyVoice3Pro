@@ -18,7 +18,7 @@ from streaming_tts import (
 
 
 SERVICE_NAME = "CosyVoice3Pro Web Gateway"
-SERVICE_VERSION = "1.8.0"
+SERVICE_VERSION = "1.9.0"
 TRITON_UPSTREAM = os.environ.get(
     "COSYVOICE_TRITON_UPSTREAM", "http://127.0.0.1:18100").rstrip("/")
 WEB_DIR = Path(__file__).resolve().parent / "web"

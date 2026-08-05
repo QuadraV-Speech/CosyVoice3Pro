@@ -34,7 +34,8 @@ GATEWAY_LOG_FILE="/tmp/cosyvoice_gateway.log"
 DECOUPLED_MODE="False"
 
 # Performance profile. "auto" keeps the conservative single acoustic-model
-# instance on smaller GPUs and enables a dual-instance profile on 80 GB GPUs.
+# instance on smaller GPUs and selects the measured streaming-first profile on
+# 80 GB GPUs. Use "throughput" explicitly for offline-heavy workloads.
 PERFORMANCE_PROFILE="${COSYVOICE_PERFORMANCE_PROFILE:-auto}"
 PERFORMANCE_CONFIG_RESOLVED="false"
 KV_CACHE_FREE_GPU_MEMORY_FRACTION=""
@@ -46,6 +47,9 @@ VOCODER_INSTANCE_COUNT=""
 INFERENCE_CONCURRENCY=""
 SEGMENT_CONCURRENCY=""
 STREAMING_CONCURRENCY=""
+STREAMING_TIMEOUT_SECONDS="${COSYVOICE_TTS_STREAM_TIMEOUT_SECONDS:-300}"
+STREAMING_QUEUE_TIMEOUT_SECONDS="${COSYVOICE_TTS_STREAM_QUEUE_TIMEOUT_SECONDS:-15}"
+STREAMING_FIRST_CHUNK_TOKENS=""
 STREAMING_CHUNK_GROWTH_OFFSET=""
 EAGER_CUDA_INIT=""
 FLOW_BATCH_SIZE=""
@@ -120,13 +124,31 @@ resolve_performance_config() {
             gpu_memory_mb=0
         fi
         if [ "${gpu_memory_mb}" -ge 70000 ]; then
-            resolved_profile="throughput"
+            resolved_profile="streaming"
         else
             resolved_profile="balanced"
         fi
     fi
 
     case "${resolved_profile}" in
+        streaming)
+            KV_CACHE_FREE_GPU_MEMORY_FRACTION="${COSYVOICE_KV_CACHE_FRACTION:-0.50}"
+            PRO_BLS_INSTANCE_COUNT="${COSYVOICE_PRO_BLS_INSTANCES:-2}"
+            STREAMING_BLS_INSTANCE_COUNT="${COSYVOICE_STREAMING_BLS_INSTANCES:-2}"
+            LEGACY_BLS_INSTANCE_COUNT="${COSYVOICE_LEGACY_BLS_INSTANCES:-1}"
+            TOKEN2WAV_INSTANCE_COUNT="${COSYVOICE_TOKEN2WAV_INSTANCES:-2}"
+            VOCODER_INSTANCE_COUNT="${COSYVOICE_VOCODER_INSTANCES:-4}"
+            INFERENCE_CONCURRENCY="${COSYVOICE_TTS_INFERENCE_CONCURRENCY:-4}"
+            SEGMENT_CONCURRENCY="${COSYVOICE_TTS_SEGMENT_CONCURRENCY:-2}"
+            STREAMING_CONCURRENCY="${COSYVOICE_TTS_STREAMING_CONCURRENCY:-16}"
+            STREAMING_FIRST_CHUNK_TOKENS="${COSYVOICE_STREAMING_FIRST_CHUNK_TOKENS:-15}"
+            STREAMING_CHUNK_GROWTH_OFFSET="${COSYVOICE_STREAMING_CHUNK_GROWTH_OFFSET:-1}"
+            EAGER_CUDA_INIT="${COSYVOICE_PRO_EAGER_CUDA_INIT:-true}"
+            FLOW_BATCH_SIZE="${COSYVOICE_FLOW_BATCH_SIZE:-${COSYVOICE_ACOUSTIC_BATCH_SIZE:-1}}"
+            FLOW_BATCH_QUEUE_DELAY_US="${COSYVOICE_FLOW_BATCH_QUEUE_DELAY_US:-${COSYVOICE_ACOUSTIC_BATCH_QUEUE_DELAY_US:-0}}"
+            VOCODER_BATCH_SIZE="${COSYVOICE_VOCODER_BATCH_SIZE:-${COSYVOICE_ACOUSTIC_BATCH_SIZE:-1}}"
+            VOCODER_BATCH_QUEUE_DELAY_US="${COSYVOICE_VOCODER_BATCH_QUEUE_DELAY_US:-${COSYVOICE_ACOUSTIC_BATCH_QUEUE_DELAY_US:-0}}"
+            ;;
         throughput)
             KV_CACHE_FREE_GPU_MEMORY_FRACTION="${COSYVOICE_KV_CACHE_FRACTION:-0.50}"
             PRO_BLS_INSTANCE_COUNT="${COSYVOICE_PRO_BLS_INSTANCES:-12}"
@@ -137,6 +159,7 @@ resolve_performance_config() {
             INFERENCE_CONCURRENCY="${COSYVOICE_TTS_INFERENCE_CONCURRENCY:-12}"
             SEGMENT_CONCURRENCY="${COSYVOICE_TTS_SEGMENT_CONCURRENCY:-2}"
             STREAMING_CONCURRENCY="${COSYVOICE_TTS_STREAMING_CONCURRENCY:-10}"
+            STREAMING_FIRST_CHUNK_TOKENS="${COSYVOICE_STREAMING_FIRST_CHUNK_TOKENS:-15}"
             STREAMING_CHUNK_GROWTH_OFFSET="${COSYVOICE_STREAMING_CHUNK_GROWTH_OFFSET:-1}"
             EAGER_CUDA_INIT="${COSYVOICE_PRO_EAGER_CUDA_INIT:-true}"
             FLOW_BATCH_SIZE="${COSYVOICE_FLOW_BATCH_SIZE:-${COSYVOICE_ACOUSTIC_BATCH_SIZE:-1}}"
@@ -154,6 +177,7 @@ resolve_performance_config() {
             INFERENCE_CONCURRENCY="${COSYVOICE_TTS_INFERENCE_CONCURRENCY:-10}"
             SEGMENT_CONCURRENCY="${COSYVOICE_TTS_SEGMENT_CONCURRENCY:-2}"
             STREAMING_CONCURRENCY="${COSYVOICE_TTS_STREAMING_CONCURRENCY:-4}"
+            STREAMING_FIRST_CHUNK_TOKENS="${COSYVOICE_STREAMING_FIRST_CHUNK_TOKENS:-15}"
             STREAMING_CHUNK_GROWTH_OFFSET="${COSYVOICE_STREAMING_CHUNK_GROWTH_OFFSET:-0}"
             EAGER_CUDA_INIT="${COSYVOICE_PRO_EAGER_CUDA_INIT:-false}"
             FLOW_BATCH_SIZE="${COSYVOICE_FLOW_BATCH_SIZE:-${COSYVOICE_ACOUSTIC_BATCH_SIZE:-1}}"
@@ -162,7 +186,7 @@ resolve_performance_config() {
             VOCODER_BATCH_QUEUE_DELAY_US="${COSYVOICE_VOCODER_BATCH_QUEUE_DELAY_US:-${COSYVOICE_ACOUSTIC_BATCH_QUEUE_DELAY_US:-0}}"
             ;;
         *)
-            log_err "COSYVOICE_PERFORMANCE_PROFILE 仅支持 auto、balanced、throughput"
+            log_err "COSYVOICE_PERFORMANCE_PROFILE 仅支持 auto、balanced、throughput、streaming"
             exit 1
             ;;
     esac
@@ -180,7 +204,9 @@ resolve_performance_config() {
         "${VOCODER_INSTANCE_COUNT}" \
         "${INFERENCE_CONCURRENCY}" \
         "${SEGMENT_CONCURRENCY}" \
-        "${STREAMING_CONCURRENCY}"; do
+        "${STREAMING_CONCURRENCY}" \
+        "${STREAMING_TIMEOUT_SECONDS}" \
+        "${STREAMING_QUEUE_TIMEOUT_SECONDS}"; do
         if ! positive_integer "${value}"; then
             log_err "性能实例数和并发数必须是正整数"
             exit 1
@@ -189,6 +215,12 @@ resolve_performance_config() {
     if [[ "${STREAMING_CHUNK_GROWTH_OFFSET}" != "0" &&
           "${STREAMING_CHUNK_GROWTH_OFFSET}" != "1" ]]; then
         log_err "COSYVOICE_STREAMING_CHUNK_GROWTH_OFFSET 仅支持 0 或 1"
+        exit 1
+    fi
+    if ! positive_integer "${STREAMING_FIRST_CHUNK_TOKENS}" ||
+       [ "${STREAMING_FIRST_CHUNK_TOKENS}" -lt 5 ] ||
+       [ "${STREAMING_FIRST_CHUNK_TOKENS}" -gt 25 ]; then
+        log_err "COSYVOICE_STREAMING_FIRST_CHUNK_TOKENS 必须是 5 到 25 的整数"
         exit 1
     fi
 
@@ -637,7 +669,9 @@ sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${PRO_BLS_INSTANCE_COUNT}/' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/config.pbtxt'
 sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${STREAMING_BLS_INSTANCE_COUNT}/' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3ProStreaming/config.pbtxt'
-sed -i -E '/key:[[:space:]]*"streaming_chunk_growth_offset"/,/}/s/string_value:[[:space:]]*"[01]"/string_value: "${STREAMING_CHUNK_GROWTH_OFFSET}"/' \
+sed -i -E '/key:[[:space:]]*\"streaming_chunk_growth_offset\"/,/}/s/string_value:[[:space:]]*\"[01]\"/string_value: \"${STREAMING_CHUNK_GROWTH_OFFSET}\"/' \
+  '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3ProStreaming/config.pbtxt'
+sed -i -E '/key:[[:space:]]*\"streaming_first_chunk_tokens\"/,/}/s/string_value:[[:space:]]*\"[0-9]+\"/string_value: \"${STREAMING_FIRST_CHUNK_TOKENS}\"/' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3ProStreaming/config.pbtxt'
 sed -i -E '/key:[[:space:]]*\"eager_cuda_init\"/,/}/s/string_value:[[:space:]]*\"(true|false)\"/string_value: \"${EAGER_CUDA_INIT}\"/' \
   '${TRITON_DIR}/model_repo_cosyvoice3_copy/CosyVoice3Pro/config.pbtxt'
@@ -667,7 +701,7 @@ sed -i -E '0,/count:[[:space:]]*[0-9]+/s//count: ${VOCODER_INSTANCE_COUNT}/' \
 
     log_ok "模型覆盖文件部署完成"
     log_info "实例配置：Pro BLS=${PRO_BLS_INSTANCE_COUNT}，Streaming BLS=${STREAMING_BLS_INSTANCE_COUNT}，Legacy BLS=${LEGACY_BLS_INSTANCE_COUNT}，token2wav=${TOKEN2WAV_INSTANCE_COUNT}，vocoder=${VOCODER_INSTANCE_COUNT}，eager CUDA=${EAGER_CUDA_INIT}"
-    log_info "流式后续块增长偏移：${STREAMING_CHUNK_GROWTH_OFFSET}"
+    log_info "流式首块=${STREAMING_FIRST_CHUNK_TOKENS} tokens，后续块增长偏移=${STREAMING_CHUNK_GROWTH_OFFSET}"
     log_info "Flow Batch：max=${FLOW_BATCH_SIZE}，preferred=[${FLOW_PREFERRED_BATCH_SIZES}]，queue=${FLOW_BATCH_QUEUE_DELAY_US}us"
     log_info "Vocoder Batch：max=${VOCODER_BATCH_SIZE}，preferred=[${VOCODER_PREFERRED_BATCH_SIZES}]，queue=${VOCODER_BATCH_QUEUE_DELAY_US}us"
     local mounted_store
@@ -831,6 +865,8 @@ COSYVOICE_TRITON_GRPC_UPSTREAM=127.0.0.1:${HOST_GRPC_PORT} \
 COSYVOICE_TTS_INFERENCE_CONCURRENCY=${INFERENCE_CONCURRENCY} \
 COSYVOICE_TTS_SEGMENT_CONCURRENCY=${SEGMENT_CONCURRENCY} \
 COSYVOICE_TTS_STREAMING_CONCURRENCY=${STREAMING_CONCURRENCY} \
+COSYVOICE_TTS_STREAM_TIMEOUT_SECONDS=${STREAMING_TIMEOUT_SECONDS} \
+COSYVOICE_TTS_STREAM_QUEUE_TIMEOUT_SECONDS=${STREAMING_QUEUE_TIMEOUT_SECONDS} \
   nohup python3 -m uvicorn app:app \
     --host 0.0.0.0 \
     --port 18000 \

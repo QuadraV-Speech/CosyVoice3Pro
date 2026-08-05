@@ -12,10 +12,13 @@ Triton gRPC 的实测结果。每张表会明确计时边界，不把模型内�
 | NVIDIA Driver | 550.127.08 |
 | Triton 镜像 | `soar97/triton-cosyvoice:25.06` |
 | 上游 CosyVoice commit | `074ca6d` |
-| Gateway | 离线基准 `1.6.1`；流式基准 `1.8.0` |
-| 模式 | 已注册 Speaker、WAV、16 kHz、单声道 |
-| Profile | `throughput`：Pro BLS 12、Streaming BLS 2、token2wav 2、vocoder 2 |
+| Gateway | 离线基准 `1.6.1`；流式生产基准 `1.9.0` |
+| 模式 | 官方 raw prompt 与生产 registered Speaker 分开统计 |
+| Profile | `streaming`：Pro BLS 2、Streaming BLS 2、token2wav 2、vocoder 4 |
 | 测试日期 | 离线 2026-07-29；流式 2026-08-05 |
+
+流式关键结果的机器可读快照见
+[`benchmark-streaming-a100-2026-08-05.json`](benchmark-streaming-a100-2026-08-05.json)。
 
 测试文本：
 
@@ -42,21 +45,23 @@ JSON 结果中的 `request_rtf_average` 是逐请求
 ## 性能 Profile
 
 `COSYVOICE_PERFORMANCE_PROFILE=auto` 会读取容器可见 GPU 显存。显存不小于
-70000 MiB 时使用 `throughput`，否则使用 `balanced`：
+70000 MiB 时使用实测的 `streaming`，否则使用 `balanced`。离线请求为主时
+显式选择 `throughput`：
 
 | Profile | LLM KV | Pro BLS | Streaming BLS | Legacy BLS | token2wav | vocoder | `/tts/` 并发 | SSE 并发 | 单请求分段 | CUDA 预热 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | `balanced` | 0.60 | 10 | 2 | 2 | 1 | 1 | 10 | 4 | 2 | 否 |
 | `throughput` | 0.50 | 12 | 2 | 2 | 2 | 2 | 12 | 10 | 2 | 是 |
+| `streaming` | 0.50 | 2 | 2 | 1 | 2 | 4 | 4 | 16 | 2 | 是 |
 
 双 `token2wav` 但单 `vocoder` 只会把队列从声学模型转移到声码器，因此
 `throughput` Profile 同时扩展两个阶段。模型生成步数、采样参数和音频后处理
 保持不变。
 
 流式并发上限和模型实例数刻意解耦。Decoupled BLS 在等待 LLM、Flow 和
-Vocoder 子请求时仍能承载多个流；在这台共享 A100 上将 Streaming BLS 从 2
-增至 10、Vocoder 从 2 增至 4，反而因 GPU 上下文竞争降低吞吐，因此不作为
-默认值。若使用独占 GPU，可通过环境变量重新执行受控 A/B。
+Vocoder 子请求时仍能承载多个流；盲目增加 BLS/Flow 会因 GPU 上下文竞争
+降低吞吐。受控 A/B 最终选择 2 个 Streaming BLS、2 个 Flow、4 个 Vocoder，
+并释放离线 BLS 占用。若使用独占 GPU，可通过环境变量重新执行 A/B。
 
 ### 声学动态 Batch（实验）
 
@@ -153,51 +158,60 @@ A100 上的复测。它用于隔离本项目配置优化带来的变化，不冒
 
 流式 TTFA（Time To First Audio）采用官方 `client_grpc.py` 的计时边界：在
 提交 Triton `stream_infer` 前开始计时，收到第一段非空 `waveform` 时停止。
-输入准备和预热不计入 TTFA。`scripts/benchmark_streaming.py` 同时报告官方
-聚合系统 RTF、音频吞吐、完整生成耗时和失败数。
+`scripts/benchmark_official_streaming.py` 进一步复现官方客户端拓扑、数据与输入
+padding；`scripts/benchmark_streaming.py` 测量开发者实际使用的 registered
+Speaker 和 Public SSE。
 
-### A100 受控优化 A/B
+### 官方同数据、同客户端口径
 
-两组均使用同一 A100-SXM4-80GB、同一服务进程绑定、同一注册声纹、固定文本、
-每档 16 个请求和 2 个预热请求。测试期间同卡保留一个约 15.2 GiB 的既有
-HongYin 服务，但没有其他临时 Ray 任务；因此本表用于比较 CosyVoice3Pro
-改动前后，不作为独占 A100 峰值。
+使用 `yuekai/seed_tts_cosy2` 的 `wenetspeech4tts` 26 条数据；每个并发任务
+持有一条同步 gRPC stream，连续处理一个数据分片；每次请求携带原始 16 kHz
+参考音频和文本，并使用官方 10 秒 padding。A100 测试期间同卡保留约
+15.2 GiB 的既有服务，因此不是独占 A100 峰值。
 
-| 并发 | 成功 | TTFA Avg（前 → 后） | 完整耗时 Avg（前 → 后） | 系统 RTF（前 → 后） | 音频吞吐（前 → 后） | 吞吐变化 |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 16/16 | 242.92 → 242.29 ms | 914.48 → 773.62 ms | 0.1492 → 0.1343 | 6.70x → 7.44x | +11.1% |
-| 2 | 16/16 | 377.17 → 333.08 ms | 1.28 → 1.14 s | 0.1075 → 0.1001 | 9.30x → 9.99x | +7.4% |
-| 4 | 16/16 | 587.98 → 598.99 ms | 2.19 → 1.96 s | 0.0936 → 0.0799 | 10.69x → 12.52x | +17.1% |
-| 8 | 16/16 | 1.03 → 1.01 s | 3.92 → 2.98 s | 0.0804 → 0.0657 | 12.43x → 15.23x | +22.5% |
-| 16 | 16/16 | 2.04 → 2.05 s | 7.21 → 5.33 s | 0.0773 → 0.0581 | 12.94x → 17.21x | **+33.0%** |
+| 环境 | 并发 | Prompt 状态 | TTFA Avg | P50 | P95 | P99 | 系统 RTF | 音频吞吐 |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 官方单 L20 | 4 | 官方报告 | 750.42 ms | 740.31 ms | 977.55 ms | 1002.37 ms | 未发布 | 未发布 |
+| Pro A100 | 4 | raw prompt 冷/混合缓存 | 944.71 ms | 685.28 ms | 2482.50 ms | 2576.83 ms | 0.1139 | 8.78x |
+| Pro A100 | 4 | raw prompt 稳态缓存 | **622.25 ms** | **627.55 ms** | **906.20 ms** | **926.93 ms** | 0.1030 | 9.71x |
 
-优化保留 15-token 首段，因此 16 并发 TTFA 基本不变；后续块从
-15/25/50… 调整为 15/50/100…，典型请求的 Flow/Vocoder 调用约从 4 次降到
-3 次。实例扩展 A/B 还发现 10 Streaming BLS + 4 Vocoder 会因单卡上下文竞争
-降低吞吐，所以最终默认仍为 2 + 2，并将 Public SSE 并发上限独立提高到 10。
+首轮尾延迟来自参考音频 tokenizer/embedding 排队，证明生产请求应优先注册
+Speaker，而不是反复上传音频。A100 与 L20 硬件不同；稳态数值只说明当前
+部署达到了官方量级，不能据此宣称纯软件相对官方提升。
 
-### 最终版本 TTFA 分位数
+### Registered Speaker 同机 A/B
 
-| gRPC 并发 | Avg | P50 | P90 | P95 | P99 | 系统 RTF | 音频吞吐 |
+两组使用相同 A100、官方 26 条 target text、`common_speaker_1` 和相同模型
+采样参数。旧配置为 Pro/Streaming/Legacy BLS `12/2/2`、Flow/Vocoder
+`2/2`；最终 `streaming` 配置为 `2/2/1`、`2/4`。并发 16 的最终值取 3 次
+重复测量中位数，其余为单轮结果。
+
+| gRPC 并发 | 成功 | TTFA Avg（旧 → 新） | TTFA P95（旧 → 新） | 音频吞吐（旧 → 新） |
+| ---: | ---: | ---: | ---: | ---: |
+| 4 | 26/26 | 478.77 → 479.46 ms | 630.50 → 687.40 ms | 12.13x → 11.86x |
+| 8 | 26/26 | 861.47 → **727.16 ms** | 1233.93 → **1025.13 ms** | 13.73x → 13.69x |
+| 16 | 26/26 | 1830.47 → **1533.39 ms** | 3050.10 → **2189.18 ms** | 15.01x → **15.23x** |
+| 26 | 26/26 | 2998.25 → **2308.09 ms** | 4961.77 → **3671.97 ms** | 15.80x → **16.07x** |
+
+并发 16 的 TTFA 平均降低 16.2%、P95 降低 28.2%；并发 26 分别降低
+23.0% 和 26.0%。低并发没有收益，因此此配置定位为流式高并发生产 Profile。
+Triton 统计显示旧配置的主要瓶颈是 Vocoder 队列；扩到 4 个后瓶颈转移到
+Flow。继续增加第 3 个 Flow 会因 GPU 上下文竞争反而恶化。首块从 15 改成
+12 token 也会让请求更早同步争抢 Flow，未采用。
+
+### Public SSE 生产验收
+
+SSE 包含 Gateway 限流、FFmpeg 语速/音量处理、24kHz→16kHz 重采样和 Base64
+传输。最终代码在 Triton 首块到达后才启动 FFmpeg，并提供 15 秒排队超时：
+
+| SSE 并发 | 请求 | 成功 | TTFA Avg | TTFA P95 | Queue P95 | 系统 RTF | 音频吞吐 |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 242.29 ms | 240.09 ms | 251.60 ms | 258.27 ms | 268.63 ms | 0.1343 | 7.44x |
-| 2 | 333.08 ms | 326.31 ms | 377.24 ms | 389.08 ms | 415.97 ms | 0.1001 | 9.99x |
-| 4 | 598.99 ms | 455.81 ms | 1040.48 ms | 1137.02 ms | 1151.81 ms | 0.0799 | 12.52x |
-| 8 | 1008.40 ms | 996.94 ms | 1293.47 ms | 1396.22 ms | 1408.55 ms | 0.0657 | 15.23x |
-| 16 | 2048.85 ms | 2053.21 ms | 2914.14 ms | 3011.77 ms | 3030.66 ms | **0.0581** | **17.21x** |
+| 8 | 32 | 32/32 | 872.38 ms | 1100.75 ms | 3.44 ms | 0.0644 | 15.53x |
+| 16 | 100 | **100/100** | 1881.25 ms | **2281.99 ms** | 5.41 ms | **0.0586** | **17.05x** |
 
-Public SSE 还包含 Gateway 限流、FFmpeg 语速/音量处理、24kHz→16kHz 重采样
-和 Base64 传输：
-
-| SSE 并发 | 成功 | TTFA Avg | TTFA P95 | Queue Avg | Queue P95 | 系统 RTF | 音频吞吐 |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 4 | 16/16 | 479.79 ms | 629.44 ms | 1.21 ms | 3.10 ms | 0.0777 | 12.86x |
-| 8 | 16/16 | 1070.94 ms | 1446.97 ms | 2.37 ms | 4.95 ms | 0.0700 | 14.28x |
-| 16 | 16/16 | 2638.34 ms | 4948.09 ms | 1378.66 ms | 3940.05 ms | 0.0654 | 15.30x |
-
-16 并发超过服务端 10 路 SSE 上限，因此排队上升是有意背压，不是请求失败。
-FFmpeg 输入探测缓冲已关闭；实测单请求中 Triton 首段 490.3 ms、SSE 首段
-492.5 ms，音频后处理首段仅增加 2.2 ms。
+断连回归同时发起 24 路请求并在 0.5 秒关闭客户端：3 秒后 FFmpeg 进程数
+保持 `0 → 0`；取消会继续传播到 Triton BLS，在下一个 Flow/Vocoder 阶段边界
+停止 GPU 工作。随后正常请求成功，服务健康状态为 Ready。
 
 ## 官方发布基线与 A100 边界
 
@@ -266,8 +280,31 @@ python3 scripts/benchmark_streaming.py \
 
 `grpc` 结果直接对齐官方的“提交 gRPC → 第一段非空 waveform”边界；`sse`
 结果是开发者实际使用 18000 接口时看到的首段，并额外统计 `queueMs`。官方
-L20 使用 `yuekai/seed_tts_cosy2` 原始参考音频数据集，本页 A100 使用已注册
-Speaker 和固定文本，所以只能分别看绝对结果，不能宣称跨硬件或跨数据集倍数。
+L20 使用 `yuekai/seed_tts_cosy2` 原始参考音频数据集。严格复现数据、10 秒
+padding、同步持久 stream 和任务分片：
+
+```bash
+curl -fL \
+  "https://huggingface.co/datasets/yuekai/seed_tts_cosy2/resolve/main/data/wenetspeech4tts-00000-of-00001.parquet" \
+  -o wenetspeech4tts.parquet
+
+python3 scripts/benchmark_official_streaming.py \
+  --server-url 127.0.0.1:18001 \
+  --model CosyVoice3ProStreaming \
+  --dataset-parquet wenetspeech4tts.parquet \
+  --concurrency 4 \
+  --output-json official-c4.json
+```
+
+生产 registered Speaker 路径保留同一组 target text 和客户端拓扑：
+
+```bash
+python3 scripts/benchmark_official_streaming.py \
+  --dataset-parquet wenetspeech4tts.parquet \
+  --speaker-id common_speaker_1 \
+  --concurrency 4,8,16,26 \
+  --output-json registered-speaker.json
+```
 
 复现上游默认核心参数 A100 基线：
 
@@ -288,7 +325,7 @@ python3 scripts/benchmark.py \
   --requests 48 \
   --warmup 12
 
-# 恢复 auto；80 GB GPU 会回到 throughput
+# 恢复 auto；80 GB GPU 会回到 streaming
 bash manage.sh restart
 ```
 
@@ -301,7 +338,14 @@ COSYVOICE_PERFORMANCE_PROFILE=balanced \
   bash manage.sh restart
 ```
 
-80 GB GPU 吞吐配置：
+80 GB GPU 流式生产配置：
+
+```bash
+COSYVOICE_PERFORMANCE_PROFILE=streaming \
+  bash manage.sh restart
+```
+
+离线吞吐配置：
 
 ```bash
 COSYVOICE_PERFORMANCE_PROFILE=throughput \
@@ -332,6 +376,9 @@ COSYVOICE_TTS_SEGMENT_CONCURRENCY=2 \
 - `COSYVOICE_TTS_INFERENCE_CONCURRENCY`
 - `COSYVOICE_TTS_SEGMENT_CONCURRENCY`
 - `COSYVOICE_TTS_STREAMING_CONCURRENCY`
+- `COSYVOICE_TTS_STREAM_TIMEOUT_SECONDS`
+- `COSYVOICE_TTS_STREAM_QUEUE_TIMEOUT_SECONDS`
+- `COSYVOICE_STREAMING_FIRST_CHUNK_TOKENS`（`5`～`25`，实测默认 `15`）
 - `COSYVOICE_STREAMING_CHUNK_GROWTH_OFFSET`（`0` 保留低延迟分块节奏，`1`
   减少高并发下的后续 Flow/Vocoder 调用）
 - `COSYVOICE_PRO_EAGER_CUDA_INIT`

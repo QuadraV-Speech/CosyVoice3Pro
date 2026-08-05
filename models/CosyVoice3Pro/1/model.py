@@ -65,7 +65,11 @@ class TritonPythonModel:
         # Streaming config
         self.token_frame_rate = 25
         self.flow_pre_lookahead_len = 3
-        self.token_hop_len = 15
+        self.token_hop_len = int(
+            model_params.get("streaming_first_chunk_tokens", "15"))
+        if not 5 <= self.token_hop_len <= self.token_frame_rate:
+            raise ValueError(
+                "streaming_first_chunk_tokens must be between 5 and 25")
         self.token_mel_ratio = 2
         self.dynamic_chunk_strategy = model_params.get("dynamic_chunk_strategy", "exponential")
         self.streaming_chunk_growth_offset = int(
@@ -73,6 +77,7 @@ class TritonPythonModel:
         if self.streaming_chunk_growth_offset not in (0, 1):
             raise ValueError("streaming_chunk_growth_offset must be 0 or 1")
         self.logger.log_info(f"CosyVoice3 BLS initialized, decoupled={self.decoupled}, "
+                             f"first_chunk_tokens={self.token_hop_len}, "
                              f"chunk_strategy={self.dynamic_chunk_strategy}, "
                              f"chunk_growth_offset={self.streaming_chunk_growth_offset}")
 
@@ -599,9 +604,20 @@ class TritonPythonModel:
         request_id = request.request_id()
         response_sender = request.get_response_sender()
 
+        def finish_if_cancelled():
+            if not response_sender.is_cancelled():
+                return False
+            response_sender.send(
+                flags=pb_utils.TRITONSERVER_RESPONSE_COMPLETE_FINAL)
+            return True
+
         try:
+            if finish_if_cancelled():
+                return
             prompt_speech_tokens_for_llm, prompt_speech_tokens, prompt_speech_feat, \
                 prompt_spk_embedding, reference_text = self._prepare_prompt(request)
+            if finish_if_cancelled():
+                return
 
             target_text = pb_utils.get_input_tensor_by_name(request, "target_text").as_numpy()
             target_text = target_text[0][0].decode('utf-8')
@@ -619,6 +635,8 @@ class TritonPythonModel:
                 reference_text=reference_text,
                 prompt_speech_tokens=prompt_speech_tokens_for_llm,
             ):
+                if finish_if_cancelled():
+                    return
                 semantic_token_ids_arr.append(generated_id)
 
                 while True:
@@ -633,12 +651,16 @@ class TritonPythonModel:
                     ).unsqueeze(0).to(torch.int32).to(self.device)
 
                     # Call token2wav (flow-only) -> mel_chunk
+                    if finish_if_cancelled():
+                        return
                     mel_chunk = await self.forward_token2wav(
                         this_tokens, prompt_speech_tokens,
                         prompt_speech_feat, prompt_spk_embedding,
                         request_id, token_offset=token_offset, finalize=False,
                         priority=chunk_index + 1,
                     )
+                    if finish_if_cancelled():
+                        return
 
                     # Accumulate mel
                     if mel_chunk.dim() == 2:
@@ -655,6 +677,8 @@ class TritonPythonModel:
                         request_id=request_id,
                         priority=chunk_index + 1,
                     )
+                    if finish_if_cancelled():
+                        return
 
                     # Extract new speech
                     new_speech = speech[:, speech_offset:]
@@ -696,6 +720,8 @@ class TritonPythonModel:
                     chunk_index += 1
 
             # Final chunk with remaining tokens
+            if finish_if_cancelled():
+                return
             if len(semantic_token_ids_arr) > 0:
                 remaining_tokens = torch.tensor(
                     semantic_token_ids_arr
@@ -707,6 +733,8 @@ class TritonPythonModel:
                     request_id, token_offset=token_offset, finalize=True,
                     priority=chunk_index + 1,
                 )
+                if finish_if_cancelled():
+                    return
 
                 if mel_chunk.dim() == 2:
                     mel_chunk = mel_chunk.unsqueeze(0)
@@ -721,6 +749,8 @@ class TritonPythonModel:
                     request_id=request_id,
                     priority=chunk_index + 1,
                 )
+                if finish_if_cancelled():
+                    return
 
                 new_speech = speech[:, speech_offset:]
                 if new_speech.shape[1] > 0:

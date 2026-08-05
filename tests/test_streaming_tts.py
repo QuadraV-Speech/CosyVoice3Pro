@@ -42,8 +42,16 @@ class StreamingTtsWiringTest(unittest.TestCase):
         self.assertIn('_sse_event("queue"', gateway)
         self.assertIn('"inferenceFirstAudioMs"', gateway)
         self.assertIn('"-probesize", "32"', gateway)
+        self.assertIn("STREAM_QUEUE_TIMEOUT_SECONDS", gateway)
+        self.assertIn('"code": "STREAM_BUSY"', gateway)
+        self.assertIn("CLIENT_DISCONNECT_POLL_SECONDS", gateway)
+        self.assertIn("await request.is_disconnected()", gateway)
+        self.assertLess(
+            gateway.index("first_waveform = await anext(inference)"),
+            gateway.index("process = await asyncio.create_subprocess_exec"),
+        )
 
-    def test_streaming_profile_scales_bls_and_vocoder(self):
+    def test_streaming_profile_scales_acoustic_capacity(self):
         manage = (REPOSITORY_ROOT / "manage.sh").read_text(encoding="utf-8")
         vocoder = (
             REPOSITORY_ROOT / "models" / "vocoder" / "config.pbtxt"
@@ -53,13 +61,14 @@ class StreamingTtsWiringTest(unittest.TestCase):
             manage,
         )
         self.assertIn(
-            'VOCODER_INSTANCE_COUNT="${COSYVOICE_VOCODER_INSTANCES:-2}"',
+            'VOCODER_INSTANCE_COUNT="${COSYVOICE_VOCODER_INSTANCES:-4}"',
             manage,
         )
         self.assertIn(
-            'STREAMING_CONCURRENCY="${COSYVOICE_TTS_STREAMING_CONCURRENCY:-10}"',
+            'STREAMING_CONCURRENCY="${COSYVOICE_TTS_STREAMING_CONCURRENCY:-16}"',
             manage,
         )
+        self.assertIn('resolved_profile="streaming"', manage)
         self.assertIn("priority_levels: 100", vocoder)
 
     def test_throughput_profile_reduces_repeated_streaming_work(self):
@@ -79,12 +88,10 @@ class StreamingTtsWiringTest(unittest.TestCase):
             2,
         )
         self.assertIn('key: "streaming_chunk_growth_offset"', streaming_config)
-        self.assertIn(
-            'string_value: "exponential"\n    }\n  },\n  {\n'
-            '    key: "streaming_chunk_growth_offset"',
-            streaming_config,
-        )
+        self.assertIn('key: "streaming_first_chunk_tokens"', streaming_config)
         self.assertIn("self.streaming_chunk_growth_offset", model)
+        self.assertIn("self.token_hop_len = int(", model)
+        self.assertIn("response_sender.is_cancelled()", model)
 
 
 if __name__ == "__main__":

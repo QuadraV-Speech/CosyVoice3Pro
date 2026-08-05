@@ -82,7 +82,7 @@ curl --fail-with-body \
 {
   "status": "ok",
   "service": "CosyVoice3Pro Web Gateway",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "gatewayReady": true,
   "tritonReady": true,
   "models": {
@@ -438,10 +438,10 @@ curl --fail-with-body -sS -N --no-buffer \
 
 ```text
 event: meta
-data: {"requestId":"...","encoding":"pcm_s16le","sampleRate":16000,"channels":1,"concurrencyLimit":10}
+data: {"requestId":"...","encoding":"pcm_s16le","sampleRate":16000,"channels":1,"concurrencyLimit":16,"queueTimeoutSeconds":15}
 
 event: queue
-data: {"requestId":"...","queueMs":1.8,"concurrencyLimit":10}
+data: {"requestId":"...","queueMs":1.8,"concurrencyLimit":16}
 
 id: 0
 event: audio
@@ -458,12 +458,15 @@ data: {"chunks":18,"samples":57600,"durationSeconds":3.6,"firstAudioMs":620.4,"q
 - `audio`：可立即播放的 PCM 分块，`seq` 从 0 递增
 - `done`：总分块、音频时长、服务端首包、排队、Triton 首段、后处理首段和
   总生成耗时；所有 `*Ms` 字段单位均为毫秒
-- `error`：响应开始后的推理错误；收到后应停止播放并展示 `detail`
+- `error`：响应开始后的推理错误；收到后应停止播放并展示 `detail`。排队超过
+  生产超时时返回 `code=STREAM_BUSY`、`queueMs` 和 `retryAfterSeconds`，客户端
+  应按建议退避重试
 - `: keep-alive`：长时间没有音频时的 SSE 注释心跳
 
 由于接口为带表单请求体的 `POST`，浏览器应使用 `fetch()` 加
 `response.body.getReader()`，而不是只支持 GET 的原生 `EventSource`。
-客户端断开连接时，Gateway 会取消对应 gRPC 推理和 FFmpeg 子进程。
+客户端断开连接时，Gateway 会取消对应 gRPC 推理。FFmpeg 延迟到 Triton
+首块到达后才创建，并在断连时立即终止，不会让排队请求形成后处理进程风暴。
 
 ### 8.4 即时参考音频流式合成
 
