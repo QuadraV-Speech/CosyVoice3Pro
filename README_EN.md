@@ -55,7 +55,7 @@ distribution.
   <a href="docs/assets/web-console.png">
     <img src="docs/assets/web-demo.gif" alt="Real CosyVoice3Pro Web console workflow" width="100%">
   </a>
-  <sub>Real service workflow: select a speaker → enter a persona and text → synthesize, preview, and download</sub>
+  <sub>Real service workflow: select a speaker → set persona and text → stream over SSE → inspect latency and download</sub>
 </div>
 
 ## Measured performance

@@ -56,7 +56,7 @@ CosyVoice3Pro 是社区服务化增强版，并非 FunAudioLLM 官方发行版�
   <a href="docs/assets/web-console.png">
     <img src="docs/assets/web-demo.gif" alt="CosyVoice3Pro Web 声音工作台真实操作演示" width="100%">
   </a>
-  <sub>真实服务演示：选择 Speaker → 输入画像与文本 → 生成、试听并下载</sub>
+  <sub>真实服务演示：选择 Speaker → 设置画像与文本 → SSE 边生成边播 → 查看耗时并下载</sub>
 </div>
 
 ## 实测性能
@@ -261,6 +261,7 @@ Speaker 默认保存在 `data/speakers/`；`bash manage.sh backup` 可手动备�
 - [对外开发者 API](docs/public-api.md)
 - [内部 Triton 高级 API](docs/advanced-api.md)
 - [性能基准与复现](docs/benchmark.md)
+- [高并发流式推理优化技术报告](docs/technical-report-streaming-optimization.md)
 - [Web Gateway 部署与运维](docs/web-admin.md)
 - [版本变更记录](CHANGELOG.md)
 - [安全策略](SECURITY.md)
